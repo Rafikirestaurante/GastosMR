@@ -53,6 +53,10 @@ function doGet(e) {
     const action = params.action || 'bootstrap';
     const payload = parsePayload_(params.payload);
 
+    if (action === 'health') {
+      return respond_({ ok: true, message: 'Apps Script conectado correctamente.' }, callback);
+    }
+
     if (action === 'bootstrap') {
       return respond_({
         ok: true,

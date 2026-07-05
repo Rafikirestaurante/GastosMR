@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { sheetsRequest } from './api/sheetsApi.js';
+import { getCachedRemoteSnapshot, sheetsRequest } from './api/sheetsApi.js';
 import {
   currentMonthKey,
   getMonthKey,
@@ -57,11 +57,17 @@ function Card({ title, value, detail }) {
   );
 }
 
-function StatusBar({ demoMode, loading, error, notice, onRefresh }) {
+function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefresh }) {
   let connectionBanner = null;
 
   if (loading) {
     connectionBanner = <div className="banner info">Verificando conexión con Google Sheets...</div>;
+  } else if (error && cachedAt) {
+    connectionBanner = (
+      <div className="banner warning">
+        {error} Se está mostrando la última información guardada en este dispositivo.
+      </div>
+    );
   } else if (error) {
     connectionBanner = <div className="banner danger">{error}</div>;
   } else if (demoMode) {
@@ -78,6 +84,14 @@ function StatusBar({ demoMode, loading, error, notice, onRefresh }) {
     <div className="status-wrap">
       {connectionBanner}
       {notice && !error ? <div className="banner success">{notice}</div> : null}
+      {error && !hasData ? (
+        <div className="connection-help">
+          <strong>Revisión rápida para celular:</strong>
+          <span>1. Abre la URL de Apps Script directamente desde el celular.</span>
+          <span>2. Si pide iniciar sesión o muestra permiso denegado, vuelve a implementar Apps Script con acceso para cualquier persona.</span>
+          <span>3. Limpia caché del navegador móvil o abre la app en una ventana privada.</span>
+        </div>
+      ) : null}
       <button className="secondary" type="button" onClick={onRefresh} disabled={loading}>
         {loading ? 'Actualizando...' : 'Actualizar datos'}
       </button>
@@ -535,18 +549,28 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [cachedAt, setCachedAt] = useState('');
   const [editing, setEditing] = useState(null);
 
   async function loadData() {
     try {
       setLoading(true);
       setError('');
+      setCachedAt('');
       const response = await sheetsRequest('bootstrap');
       setConfig(response.data.config);
       setMile(response.data.mile || []);
       setRafa(response.data.rafa || []);
       setDemoMode(Boolean(response.demo));
     } catch (err) {
+      const cached = getCachedRemoteSnapshot();
+      if (cached?.data) {
+        setConfig(cached.data.config || { categorias: [], tiposMovimiento: [], subcategorias: [] });
+        setMile(cached.data.mile || []);
+        setRafa(cached.data.rafa || []);
+        setDemoMode(false);
+        setCachedAt(cached.savedAt || 'copia local');
+      }
       setError(err.message || 'No se pudieron cargar los datos.');
     } finally {
       setLoading(false);
@@ -622,7 +646,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 2A</small>
+            <small>Milena · Fase 2B</small>
           </div>
         </div>
         <nav>
@@ -646,7 +670,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version">Fase 2A</span>
+          <span className="version">Fase 2B</span>
         </header>
 
         <StatusBar
@@ -654,6 +678,8 @@ export default function App() {
           loading={loading}
           error={error}
           notice={notice}
+          cachedAt={cachedAt}
+          hasData={mile.length > 0 || rafa.length > 0}
           onRefresh={loadData}
         />
 

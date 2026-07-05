@@ -1,4 +1,4 @@
-# Control Gastos Milena — Fase 2A
+# Control Gastos Milena — Fase 2B
 
 Aplicación web sencilla para controlar los gastos de Milena usando:
 
@@ -94,7 +94,7 @@ http://localhost:5173
 ```bash
 git init
 git add .
-git commit -m "Fase 2A control gastos Milena"
+git commit -m "Fase 2B control gastos Milena"
 git branch -M main
 git remote add origin URL_DE_TU_REPOSITORIO
 git push -u origin main
@@ -153,3 +153,46 @@ Esta versión corrige la actualización móvil anterior y deja una base más est
 - Se redujo la carga visual del encabezado en móvil.
 - Se conservaron formularios a una columna, tarjetas móviles para historial y tablas para PC.
 - No se modificó la estructura de Google Sheets ni el Apps Script para estos ajustes visuales.
+
+
+## Corrección Fase 2B — conexión en celular
+
+Esta versión mejora el diagnóstico cuando la app funciona en computador pero falla en celular.
+
+### Causa más probable
+
+Si en computador aparece **“Conectado correctamente a Google Sheets”** pero en celular aparece **“No se pudo cargar Google Apps Script”**, normalmente no es problema de la hoja ni del token. La causa más común es que el Web App de Apps Script esté disponible para la cuenta de Google abierta en el computador, pero no para el navegador del celular.
+
+Revisar en Apps Script:
+
+1. **Implementar > Administrar implementaciones**.
+2. Editar la implementación activa o crear una nueva.
+3. Tipo: **Aplicación web**.
+4. Ejecutar como: **Yo**.
+5. Acceso: **Cualquier persona**. No usar “Solo yo” ni “cualquier persona con cuenta de Google”.
+6. Guardar, copiar la URL `/exec` actualizada y ponerla en Vercel si cambió.
+7. Hacer redeploy en Vercel.
+
+### Prueba rápida desde el celular
+
+Abre directamente en el navegador del celular la URL de Apps Script agregando el token y la acción `health`:
+
+```txt
+TU_URL_DE_APPS_SCRIPT?action=health&token=TU_TOKEN
+```
+
+Debe responder algo parecido a:
+
+```json
+{"ok":true,"message":"Apps Script conectado correctamente."}
+```
+
+Si pide iniciar sesión, muestra permiso denegado o no abre, el problema está en el despliegue/permisos de Apps Script, no en React.
+
+### Cambios técnicos incluidos
+
+- Mensaje de error más claro para celular.
+- Parámetro anticaché en cada solicitud a Apps Script.
+- Caché local de la última carga correcta en el dispositivo.
+- Si la conexión falla después de una carga exitosa, la app muestra la última información guardada en ese dispositivo.
+- Panel de revisión rápida visible cuando no hay datos y falla la conexión.

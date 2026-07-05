@@ -218,6 +218,26 @@ h3 {
   border-color: #f4b5af;
 }
 
+
+.connection-help {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.85rem 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  background: rgba(255, 250, 243, 0.85);
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.connection-help strong {
+  color: var(--text);
+}
+
+.connection-help span {
+  display: block;
+}
+
 .panel,
 .subpanel,
 .card {
@@ -893,6 +913,12 @@ select {
     border-radius: 13px;
     font-size: 0.92rem;
     line-height: 1.35;
+  }
+
+
+  .connection-help {
+    padding: 0.75rem 0.8rem;
+    font-size: 0.86rem;
   }
 
   .panel {

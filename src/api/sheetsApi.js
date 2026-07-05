@@ -3,6 +3,7 @@ import { todayISO } from '../utils/format.js';
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || '';
 const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || '';
 const DEMO_KEY = 'control-gastos-milena-demo-v1';
+const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v1';
 
 const sampleState = {
   config: {
@@ -69,6 +70,34 @@ function saveDemoState(state) {
   localStorage.setItem(DEMO_KEY, JSON.stringify(state));
 }
 
+
+function saveRemoteSnapshot(data) {
+  try {
+    localStorage.setItem(REMOTE_CACHE_KEY, JSON.stringify({
+      savedAt: new Date().toISOString(),
+      data
+    }));
+  } catch {
+    // Si el navegador bloquea localStorage, simplemente continuamos sin caché.
+  }
+}
+
+export function getCachedRemoteSnapshot() {
+  try {
+    const raw = localStorage.getItem(REMOTE_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.data) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function hasRemoteConfig() {
+  return Boolean(APPS_SCRIPT_URL && !APPS_SCRIPT_URL.includes('PEGA_AQUI') && APP_TOKEN);
+}
+
 function nextId(records, prefix) {
   const max = records.reduce((acc, item) => {
     const number = Number(String(item.id || '').replace(/\D/g, ''));
@@ -120,11 +149,12 @@ function jsonpRequest(action, payload = {}) {
     url.searchParams.set('token', APP_TOKEN);
     url.searchParams.set('payload', JSON.stringify(payload));
     url.searchParams.set('callback', callbackName);
+    url.searchParams.set('_', String(Date.now()));
 
     const script = document.createElement('script');
     const timeout = window.setTimeout(() => {
       cleanup();
-      reject(new Error('La solicitud a Google Sheets tardó demasiado.'));
+      reject(new Error('La solicitud a Google Sheets tardó demasiado en este dispositivo. Revisa la conexión del celular o abre nuevamente la app.'));
     }, 25000);
 
     function cleanup() {
@@ -144,7 +174,7 @@ function jsonpRequest(action, payload = {}) {
 
     script.onerror = () => {
       cleanup();
-      reject(new Error('No se pudo conectar con Google Apps Script.'));
+      reject(new Error('No se pudo cargar Google Apps Script desde este dispositivo. Revisa permisos del Web App, caché del navegador o conexión del celular.'));
     };
 
     script.src = url.toString();
@@ -155,5 +185,10 @@ function jsonpRequest(action, payload = {}) {
 export async function sheetsRequest(action, payload = {}) {
   const useDemo = !APPS_SCRIPT_URL || APPS_SCRIPT_URL.includes('PEGA_AQUI') || !APP_TOKEN;
   if (useDemo) return localRequest(action, payload);
-  return jsonpRequest(action, payload);
+  const response = await jsonpRequest(action, payload);
+  if (action === 'bootstrap' && response?.data) {
+    saveRemoteSnapshot(response.data);
+  }
+  return response;
 }
+
