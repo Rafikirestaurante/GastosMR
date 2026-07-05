@@ -796,3 +796,162 @@ select {
     align-self: flex-end;
   }
 }
+
+/* Ajustes Fase 2A: corrección de conexión y experiencia móvil */
+.banner.info {
+  background: #eef4ff;
+  color: #1d4ed8;
+  border-color: #bfd7ff;
+}
+
+.nav-label-short {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    display: block;
+    min-height: 100dvh;
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    padding: 0.85rem;
+    box-shadow: none;
+  }
+
+  .brand {
+    margin-bottom: 0;
+  }
+
+  .brand > span {
+    width: 40px;
+    height: 40px;
+  }
+
+  .sidebar nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.28rem;
+    overflow: visible;
+    padding: 0.5rem 0.45rem calc(0.5rem + env(safe-area-inset-bottom));
+    background: #33251d;
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: 0 -12px 30px rgba(29, 20, 14, 0.24);
+  }
+
+  .sidebar nav button {
+    min-width: 0;
+    min-height: 48px;
+    padding: 0.45rem 0.25rem;
+    border-radius: 12px;
+    font-size: 0.76rem;
+    line-height: 1.1;
+    text-align: center;
+    display: grid;
+    place-items: center;
+    white-space: normal;
+  }
+
+  .nav-label-full {
+    display: none;
+  }
+
+  .nav-label-short {
+    display: block;
+  }
+
+  .content {
+    padding: 0.85rem 0.85rem 6.4rem;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .version {
+    flex: 0 0 auto;
+    font-size: 0.78rem;
+    padding: 0.42rem 0.65rem;
+  }
+
+  .status-wrap {
+    gap: 0.5rem;
+  }
+
+  .banner {
+    padding: 0.7rem 0.8rem;
+    border-radius: 13px;
+    font-size: 0.92rem;
+    line-height: 1.35;
+  }
+
+  .panel {
+    padding: 0.85rem;
+    margin-bottom: 0.85rem;
+  }
+
+  .panel-head {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+  }
+
+  .cards-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .card span,
+  .card small {
+    font-size: 0.78rem;
+    line-height: 1.2;
+  }
+
+  .card strong {
+    font-size: 1rem;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+  }
+
+  .form-grid,
+  .filters,
+  .two-col,
+  .three-col {
+    grid-template-columns: 1fr;
+  }
+
+  .mobile-record {
+    border-radius: 16px;
+    padding: 0.85rem;
+  }
+
+  .mobile-record-head {
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .mobile-record-head em {
+    align-self: flex-start;
+    text-align: left;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 360px) {
+  .cards-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar nav button {
+    font-size: 0.7rem;
+  }
+}

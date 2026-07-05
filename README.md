@@ -1,4 +1,4 @@
-# Control Gastos Milena — Fase 1A
+# Control Gastos Milena — Fase 2A
 
 Aplicación web sencilla para controlar los gastos de Milena usando:
 
@@ -94,7 +94,7 @@ http://localhost:5173
 ```bash
 git init
 git add .
-git commit -m "Fase 1A control gastos Milena"
+git commit -m "Fase 2A control gastos Milena"
 git branch -M main
 git remote add origin URL_DE_TU_REPOSITORIO
 git push -u origin main
@@ -116,7 +116,7 @@ VITE_APP_TOKEN=gastos-mile-2026-token-seguro
 
 7. Deploy.
 
-## 7. Qué incluye esta Fase 1A
+## 7. Qué incluye esta base funcional
 
 - Dashboard de Milena.
 - Total de ingresos del mes.
@@ -135,7 +135,7 @@ VITE_APP_TOKEN=gastos-mile-2026-token-seguro
 - ID automático.
 - Modo demo/local si aún no se configura Apps Script.
 
-## 8. Pendiente para Fase 1B
+## 8. Pendiente para próximas mejoras
 
 - Mejorar seguridad con un proxy en Vercel o autenticación simple.
 - Gráficas visuales.
@@ -143,17 +143,13 @@ VITE_APP_TOKEN=gastos-mile-2026-token-seguro
 - Editar categorías desde la app.
 - Presupuesto mensual por categoría.
 
-## Optimización móvil Fase 1A.1
+## Corrección Fase 2A
 
-La app está optimizada principalmente para celular:
+Esta versión corrige la actualización móvil anterior y deja una base más estable para continuar la Fase 2:
 
-- Menú superior fijo en pantallas pequeñas.
-- Navegación horizontal táctil.
-- Formularios a una columna.
-- Botones y campos con tamaño cómodo para dedo.
-- Historial de Milena en tarjetas móviles.
-- Gastos Rafa en tarjetas móviles.
-- Tablas conservadas para PC.
-- Inputs ajustados para evitar zoom automático en móviles.
-
-No se modificó la estructura de Google Sheets ni el Apps Script para estos ajustes visuales.
+- Se eliminó el mensaje contradictorio entre “Conectado” y “No se pudo conectar”.
+- El estado de conexión ahora muestra solo una condición a la vez: verificando, conectado, modo demo o error.
+- La navegación móvil pasó a una barra inferior fija, más cómoda para celular.
+- Se redujo la carga visual del encabezado en móvil.
+- Se conservaron formularios a una columna, tarjetas móviles para historial y tablas para PC.
+- No se modificó la estructura de Google Sheets ni el Apps Script para estos ajustes visuales.

@@ -28,11 +28,11 @@ const emptyRafa = {
 };
 
 const navItems = [
-  { id: 'dashboard', label: 'Dashboard' },
-  { id: 'nuevo', label: 'Nuevo Milena' },
-  { id: 'historial', label: 'Historial Milena' },
-  { id: 'rafa', label: 'Gastos Rafa' },
-  { id: 'config', label: 'Configuración' }
+  { id: 'dashboard', label: 'Dashboard', short: 'Inicio' },
+  { id: 'nuevo', label: 'Nuevo Milena', short: 'Nuevo' },
+  { id: 'historial', label: 'Historial Milena', short: 'Historial' },
+  { id: 'rafa', label: 'Gastos Rafa', short: 'Rafa' },
+  { id: 'config', label: 'Configuración', short: 'Config' }
 ];
 
 function requireFields(data, fields) {
@@ -58,17 +58,26 @@ function Card({ title, value, detail }) {
 }
 
 function StatusBar({ demoMode, loading, error, notice, onRefresh }) {
+  let connectionBanner = null;
+
+  if (loading) {
+    connectionBanner = <div className="banner info">Verificando conexión con Google Sheets...</div>;
+  } else if (error) {
+    connectionBanner = <div className="banner danger">{error}</div>;
+  } else if (demoMode) {
+    connectionBanner = (
+      <div className="banner warning">
+        Modo demo/local activo. Configura la URL de Apps Script y el token para trabajar con Google Sheets.
+      </div>
+    );
+  } else {
+    connectionBanner = <div className="banner success">Conectado correctamente a Google Sheets.</div>;
+  }
+
   return (
     <div className="status-wrap">
-      {demoMode ? (
-        <div className="banner warning">
-          Estás en modo demo/local porque todavía no configuraste la URL de Apps Script en el archivo .env.
-        </div>
-      ) : (
-        <div className="banner success">Conectado a Google Sheets mediante Apps Script.</div>
-      )}
-      {error ? <div className="banner danger">{error}</div> : null}
-      {notice ? <div className="banner success">{notice}</div> : null}
+      {connectionBanner}
+      {notice && !error ? <div className="banner success">{notice}</div> : null}
       <button className="secondary" type="button" onClick={onRefresh} disabled={loading}>
         {loading ? 'Actualizando...' : 'Actualizar datos'}
       </button>
@@ -613,7 +622,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 1A</small>
+            <small>Milena · Fase 2A</small>
           </div>
         </div>
         <nav>
@@ -624,7 +633,8 @@ export default function App() {
               type="button"
               onClick={() => setActive(item.id)}
             >
-              {item.label}
+              <span className="nav-label-full">{item.label}</span>
+              <span className="nav-label-short">{item.short}</span>
             </button>
           ))}
         </nav>
@@ -636,7 +646,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version">Fase 1A</span>
+          <span className="version">Fase 2A</span>
         </header>
 
         <StatusBar
