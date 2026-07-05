@@ -5,7 +5,7 @@
  * 1. Pega este archivo en Extensiones > Apps Script.
  * 2. Cambia SPREADSHEET_ID por el ID real de tu Google Sheet.
  * 3. Cambia APP_TOKEN y usa el mismo valor en Vercel/.env.
- * 4. Despliega como Web App: Ejecutar como Yo / Acceso Cualquiera con el enlace.
+ * 4. Despliega como Web App: Ejecutar como Yo / Acceso Cualquier persona.
  ************************************************************/
 
 const SPREADSHEET_ID = 'PEGA_AQUI_EL_ID_DE_TU_GOOGLE_SHEET';

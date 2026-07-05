@@ -981,3 +981,19 @@ select {
     font-size: 0.7rem;
   }
 }
+
+/* Fase 2C: acciones reales de actualización/caché */
+.status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.status-actions .secondary {
+  justify-self: auto;
+}
+
+.repair-button {
+  border-color: #d7c4aa;
+}

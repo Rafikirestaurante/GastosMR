@@ -1,4 +1,5 @@
 import { todayISO } from '../utils/format.js';
+import { APP_VERSION } from '../utils/appVersion.js';
 
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || '';
 const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || '';
@@ -150,6 +151,7 @@ function jsonpRequest(action, payload = {}) {
     url.searchParams.set('payload', JSON.stringify(payload));
     url.searchParams.set('callback', callbackName);
     url.searchParams.set('_', String(Date.now()));
+    url.searchParams.set('appVersion', APP_VERSION);
 
     const script = document.createElement('script');
     const timeout = window.setTimeout(() => {
@@ -174,7 +176,7 @@ function jsonpRequest(action, payload = {}) {
 
     script.onerror = () => {
       cleanup();
-      reject(new Error('No se pudo cargar Google Apps Script desde este dispositivo. Revisa permisos del Web App, caché del navegador o conexión del celular.'));
+      reject(new Error('No se pudo cargar Google Apps Script desde este dispositivo. Puede haber una versión vieja de la app retenida por el navegador móvil o una PWA anterior.'));
     };
 
     script.src = url.toString();

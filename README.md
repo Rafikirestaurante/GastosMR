@@ -196,3 +196,16 @@ Si pide iniciar sesión, muestra permiso denegado o no abre, el problema está e
 - Caché local de la última carga correcta en el dispositivo.
 - Si la conexión falla después de una carga exitosa, la app muestra la última información guardada en ese dispositivo.
 - Panel de revisión rápida visible cuando no hay datos y falla la conexión.
+
+
+## Fase 2C - control real de caché móvil
+
+Esta versión agrega una corrección estructural para evitar que el navegador móvil o una PWA anterior sigan cargando una versión vieja de la app. Incluye:
+
+- `vercel.json` con headers no-cache para `/` e `index.html`.
+- Limpieza automática de cachés al cambiar la versión interna de la app.
+- Desregistro automático de service workers antiguos.
+- Botón **Reparar app en este dispositivo** dentro de la aplicación.
+- Archivos `public/sw.js` y `public/service-worker.js` para reemplazar y desactivar service workers anteriores.
+
+Si en modo incógnito funciona pero en ventana normal no, esta versión busca corregirlo desde la aplicación y el despliegue, no mediante instrucciones manuales al usuario.

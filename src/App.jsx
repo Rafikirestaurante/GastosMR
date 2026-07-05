@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getCachedRemoteSnapshot, sheetsRequest } from './api/sheetsApi.js';
+import { APP_VERSION, cleanOldAppCache, forceCleanAndReload } from './utils/appVersion.js';
 import {
   currentMonthKey,
   getMonthKey,
@@ -57,7 +58,7 @@ function Card({ title, value, detail }) {
   );
 }
 
-function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefresh }) {
+function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefresh, updateInfo }) {
   let connectionBanner = null;
 
   if (loading) {
@@ -84,17 +85,26 @@ function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefr
     <div className="status-wrap">
       {connectionBanner}
       {notice && !error ? <div className="banner success">{notice}</div> : null}
-      {error && !hasData ? (
-        <div className="connection-help">
-          <strong>Revisión rápida para celular:</strong>
-          <span>1. Abre la URL de Apps Script directamente desde el celular.</span>
-          <span>2. Si pide iniciar sesión o muestra permiso denegado, vuelve a implementar Apps Script con acceso para cualquier persona.</span>
-          <span>3. Limpia caché del navegador móvil o abre la app en una ventana privada.</span>
+      {updateInfo?.versionChanged ? (
+        <div className="banner success">
+          App actualizada a la última versión. Se limpiaron cachés antiguos del navegador.
         </div>
       ) : null}
-      <button className="secondary" type="button" onClick={onRefresh} disabled={loading}>
-        {loading ? 'Actualizando...' : 'Actualizar datos'}
-      </button>
+      {error && !hasData ? (
+        <div className="connection-help">
+          <strong>Problema de actualización detectado:</strong>
+          <span>La app puede estar cargando una versión vieja guardada por el navegador o una PWA anterior.</span>
+          <span>Usa “Reparar app en este dispositivo” para limpiar cachés internos y recargar la versión publicada.</span>
+        </div>
+      ) : null}
+      <div className="status-actions">
+        <button className="secondary" type="button" onClick={onRefresh} disabled={loading}>
+          {loading ? 'Actualizando...' : 'Actualizar datos'}
+        </button>
+        <button className="secondary repair-button" type="button" onClick={forceCleanAndReload}>
+          Reparar app en este dispositivo
+        </button>
+      </div>
     </div>
   );
 }
@@ -551,6 +561,7 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const [cachedAt, setCachedAt] = useState('');
   const [editing, setEditing] = useState(null);
+  const [updateInfo, setUpdateInfo] = useState(null);
 
   async function loadData() {
     try {
@@ -578,7 +589,19 @@ export default function App() {
   }
 
   useEffect(() => {
-    loadData();
+    let mounted = true;
+
+    async function startApp() {
+      const info = await cleanOldAppCache().catch(() => ({ versionChanged: false }));
+      if (mounted) setUpdateInfo(info);
+      await loadData();
+    }
+
+    startApp();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   async function saveMile(data) {
@@ -646,7 +669,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 2B</small>
+            <small>Milena · Fase 2C</small>
           </div>
         </div>
         <nav>
@@ -670,7 +693,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version">Fase 2B</span>
+          <span className="version" title={APP_VERSION}>Fase 2C</span>
         </header>
 
         <StatusBar
@@ -681,6 +704,7 @@ export default function App() {
           cachedAt={cachedAt}
           hasData={mile.length > 0 || rafa.length > 0}
           onRefresh={loadData}
+          updateInfo={updateInfo}
         />
 
         {loading ? <div className="panel loading">Cargando información...</div> : null}
