@@ -15,3 +15,7 @@ La app incluye las siguientes secciones: Dashboard, Nuevo Milena, Historial Mile
 La conexión con Google Sheets se preparó mediante Google Apps Script, que funciona como puente para leer, crear, editar y borrar registros. Se agregó un archivo Code.gs listo para pegar en Apps Script, junto con instrucciones para configurar el ID de la hoja, el token de acceso y la URL de despliegue.
 
 La aplicación también tiene modo demo/local, útil para probar el diseño antes de conectar la hoja real.
+
+## Ajuste de optimización móvil
+
+Se revisó la experiencia en celular y se aplicaron mejoras de Fase 1A.1 sin cambiar la lógica de conexión con Google Sheets. Los cambios principales fueron: navegación superior fija en móvil con desplazamiento horizontal, botones y campos con altura mínima táctil de 44px, inputs de 16px para evitar zoom automático en celulares, formularios a una columna, tarjetas del dashboard compactas, y reemplazo visual de las tablas por tarjetas móviles en Historial Milena y Gastos Rafa. En PC se conserva la visualización en tablas amplias para facilitar consulta y revisión de muchos datos.

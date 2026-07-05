@@ -309,7 +309,34 @@ function History({ rows, config, onEdit, onDelete }) {
         <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
       </div>
 
-      <div className="table-wrap">
+      <div className="mobile-records" aria-label="Historial Milena en tarjetas">
+        {filtered.map((row) => (
+          <article className="mobile-record" key={`mobile-${row.id}`}>
+            <div className="mobile-record-head">
+              <div>
+                <strong>{row.concepto}</strong>
+                <span>{row.fecha} · {row.id}</span>
+              </div>
+              <em className={normalizeText(row.tipoMovimiento) === 'ingreso' ? 'income' : 'expense'}>
+                {normalizeText(row.tipoMovimiento) === 'ingreso' ? '+' : '-'}{money(row.monto)}
+              </em>
+            </div>
+            <div className="mobile-record-meta">
+              <span><b>Proveedor:</b> {row.proveedor}</span>
+              <span><b>Tipo:</b> {row.tipoMovimiento}</span>
+              <span><b>Categoría:</b> {row.categoria}</span>
+              <span><b>Subcategoría:</b> {row.subcategoria}</span>
+            </div>
+            <div className="row-actions mobile-actions">
+              <button className="small" type="button" onClick={() => onEdit(row)}>Editar</button>
+              <button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button>
+            </div>
+          </article>
+        ))}
+        {filtered.length === 0 ? <div className="empty mobile-empty">No hay registros con esos filtros.</div> : null}
+      </div>
+
+      <div className="table-wrap desktop-table">
         <table>
           <thead>
             <tr>
@@ -407,7 +434,28 @@ function RafaModule({ rows, config, onCreate, onDelete, saving }) {
         </div>
       </form>
 
-      <div className="table-wrap small-table">
+      <div className="mobile-records" aria-label="Gastos Rafa en tarjetas">
+        {[...rows].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))).map((row) => (
+          <article className="mobile-record" key={`rafa-mobile-${row.id}`}>
+            <div className="mobile-record-head">
+              <div>
+                <strong>{row.concepto}</strong>
+                <span>{row.fecha} · {row.id}</span>
+              </div>
+              <em className="expense">{money(row.monto)}</em>
+            </div>
+            <div className="mobile-record-meta">
+              <span><b>Categoría:</b> {row.categoria}</span>
+            </div>
+            <div className="row-actions mobile-actions">
+              <button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button>
+            </div>
+          </article>
+        ))}
+        {rows.length === 0 ? <div className="empty mobile-empty">No hay gastos de Rafa registrados.</div> : null}
+      </div>
+
+      <div className="table-wrap small-table desktop-table">
         <table>
           <thead>
             <tr>

@@ -3,13 +3,13 @@
  * Backend en Google Apps Script para usar Google Sheets como BD.
  *
  * 1. Pega este archivo en Extensiones > Apps Script.
- * 2. Verifica que SPREADSHEET_ID sea el ID real de tu Google Sheet.
- * 3. Usa el mismo APP_TOKEN en Vercel/.env.
+ * 2. Cambia SPREADSHEET_ID por el ID real de tu Google Sheet.
+ * 3. Cambia APP_TOKEN y usa el mismo valor en Vercel/.env.
  * 4. Despliega como Web App: Ejecutar como Yo / Acceso Cualquiera con el enlace.
  ************************************************************/
 
-const SPREADSHEET_ID = '1AbCDeFGhiJKLmnopQRstuVWxyz123456789';
-const APP_TOKEN = 'rafa1234';
+const SPREADSHEET_ID = 'PEGA_AQUI_EL_ID_DE_TU_GOOGLE_SHEET';
+const APP_TOKEN = 'cambia-este-token-largo';
 
 const SHEETS = {
   mile: 'Gastos Mile',
@@ -46,7 +46,6 @@ function doGet(e) {
 
   try {
     const token = params.token || '';
-
     if (token !== APP_TOKEN) {
       return respond_({ ok: false, message: 'Token inválido.' }, callback);
     }
@@ -81,14 +80,11 @@ function doGet(e) {
     }
 
     return respond_({ ok: false, message: 'Acción no soportada: ' + action }, callback);
-
   } catch (error) {
-    return respond_({
-      ok: false,
-      message: error.message || String(error)
-    }, callback);
+    return respond_({ ok: false, message: error.message || String(error) }, callback);
   }
 }
+
 
 function probarConexion() {
   const response = doGet({
@@ -97,13 +93,11 @@ function probarConexion() {
       token: APP_TOKEN
     }
   });
-
   Logger.log(response.getContent());
 }
 
 function parsePayload_(raw) {
   if (!raw) return {};
-
   try {
     return JSON.parse(raw);
   } catch (error) {
@@ -113,19 +107,16 @@ function parsePayload_(raw) {
 
 function sanitizeCallback_(callback) {
   if (!callback) return '';
-
   return /^[a-zA-Z_$][0-9a-zA-Z_$]*$/.test(callback) ? callback : '';
 }
 
 function respond_(obj, callback) {
   const text = JSON.stringify(obj);
-
   if (callback) {
     return ContentService
       .createTextOutput(callback + '(' + text + ');')
       .setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
-
   return ContentService
     .createTextOutput(text)
     .setMimeType(ContentService.MimeType.JSON);
@@ -137,24 +128,15 @@ function getSpreadsheet_() {
 
 function getSheet_(entity) {
   const sheetName = SHEETS[entity];
-
-  if (!sheetName) {
-    throw new Error('Entidad no válida.');
-  }
-
+  if (!sheetName) throw new Error('Entidad no válida.');
   const sheet = getSpreadsheet_().getSheetByName(sheetName);
-
-  if (!sheet) {
-    throw new Error('No existe la hoja: ' + sheetName);
-  }
-
+  if (!sheet) throw new Error('No existe la hoja: ' + sheetName);
   return sheet;
 }
 
 function readConfig_() {
   const sheet = getSheet_('config');
   const lastRow = Math.max(sheet.getLastRow(), 2);
-
   const values = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
 
   return {
@@ -166,12 +148,10 @@ function readConfig_() {
 
 function uniqueClean_(values) {
   const seen = {};
-
   return values
     .map(value => String(value || '').trim())
     .filter(value => {
       if (!value || seen[value]) return false;
-
       seen[value] = true;
       return true;
     });
@@ -180,7 +160,6 @@ function uniqueClean_(values) {
 function readRows_(entity) {
   const sheet = getSheet_(entity);
   const lastRow = sheet.getLastRow();
-
   if (lastRow < 2) return [];
 
   const headers = HEADERS[entity];
@@ -218,33 +197,22 @@ function formatDate_(value) {
   if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)) {
     return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   }
-
   const text = String(value || '').trim();
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    return text;
-  }
-
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
   return text;
 }
 
 function parseDate_(text) {
   const value = String(text || '').trim();
-
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     throw new Error('La fecha debe tener formato YYYY-MM-DD.');
   }
-
   const parts = value.split('-').map(Number);
-
   return new Date(parts[0], parts[1] - 1, parts[2]);
 }
 
 function createRow_(entity, data) {
-  if (entity !== 'mile' && entity !== 'rafa') {
-    throw new Error('Entidad no válida.');
-  }
-
+  if (entity !== 'mile' && entity !== 'rafa') throw new Error('Entidad no válida.');
   validateRequired_(entity, data);
 
   const lock = LockService.getScriptLock();
@@ -253,7 +221,6 @@ function createRow_(entity, data) {
   try {
     const sheet = getSheet_(entity);
     const id = generateId_(entity, sheet);
-
     const row = entity === 'mile'
       ? [
           id,
@@ -274,23 +241,15 @@ function createRow_(entity, data) {
         ];
 
     sheet.appendRow(row);
-
     return entity === 'mile' ? mapMileRow_(row) : mapRafaRow_(row);
-
   } finally {
     lock.releaseLock();
   }
 }
 
 function updateRow_(entity, id, data) {
-  if (entity !== 'mile' && entity !== 'rafa') {
-    throw new Error('Entidad no válida.');
-  }
-
-  if (!id) {
-    throw new Error('Falta ID para actualizar.');
-  }
-
+  if (entity !== 'mile' && entity !== 'rafa') throw new Error('Entidad no válida.');
+  if (!id) throw new Error('Falta ID para actualizar.');
   validateRequired_(entity, data);
 
   const lock = LockService.getScriptLock();
@@ -299,10 +258,7 @@ function updateRow_(entity, id, data) {
   try {
     const sheet = getSheet_(entity);
     const rowNumber = findRowById_(sheet, id);
-
-    if (!rowNumber) {
-      throw new Error('No se encontró el registro: ' + id);
-    }
+    if (!rowNumber) throw new Error('No se encontró el registro: ' + id);
 
     const row = entity === 'mile'
       ? [
@@ -324,20 +280,14 @@ function updateRow_(entity, id, data) {
         ];
 
     sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
-
   } finally {
     lock.releaseLock();
   }
 }
 
 function deleteRow_(entity, id) {
-  if (entity !== 'mile' && entity !== 'rafa') {
-    throw new Error('Entidad no válida.');
-  }
-
-  if (!id) {
-    throw new Error('Falta ID para borrar.');
-  }
+  if (entity !== 'mile' && entity !== 'rafa') throw new Error('Entidad no válida.');
+  if (!id) throw new Error('Falta ID para borrar.');
 
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -345,13 +295,8 @@ function deleteRow_(entity, id) {
   try {
     const sheet = getSheet_(entity);
     const rowNumber = findRowById_(sheet, id);
-
-    if (!rowNumber) {
-      throw new Error('No se encontró el registro: ' + id);
-    }
-
+    if (!rowNumber) throw new Error('No se encontró el registro: ' + id);
     sheet.deleteRow(rowNumber);
-
   } finally {
     lock.releaseLock();
   }
@@ -359,28 +304,10 @@ function deleteRow_(entity, id) {
 
 function validateRequired_(entity, data) {
   const fields = entity === 'mile'
-    ? [
-        'fecha',
-        'proveedor',
-        'concepto',
-        'tipoMovimiento',
-        'monto',
-        'categoria',
-        'subcategoria'
-      ]
-    : [
-        'fecha',
-        'concepto',
-        'monto',
-        'categoria'
-      ];
+    ? ['fecha', 'proveedor', 'concepto', 'tipoMovimiento', 'monto', 'categoria', 'subcategoria']
+    : ['fecha', 'concepto', 'monto', 'categoria'];
 
-  const missing = fields.filter(field => {
-    return data[field] === undefined ||
-      data[field] === null ||
-      String(data[field]).trim() === '';
-  });
-
+  const missing = fields.filter(field => data[field] === undefined || data[field] === null || String(data[field]).trim() === '');
   if (missing.length) {
     throw new Error('Faltan campos obligatorios: ' + missing.join(', '));
   }
@@ -392,40 +319,25 @@ function validateRequired_(entity, data) {
 
 function findRowById_(sheet, id) {
   const lastRow = sheet.getLastRow();
-
   if (lastRow < 2) return 0;
-
   const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues().flat();
   const target = String(id).trim();
-
   for (let i = 0; i < ids.length; i++) {
-    if (String(ids[i]).trim() === target) {
-      return i + 2;
-    }
+    if (String(ids[i]).trim() === target) return i + 2;
   }
-
   return 0;
 }
 
 function generateId_(entity, sheet) {
   const prefix = entity === 'mile' ? 'T' : 'R';
   const lastRow = sheet.getLastRow();
-
-  if (lastRow < 2) {
-    return prefix + '001';
-  }
+  if (lastRow < 2) return prefix + '001';
 
   const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues().flat();
-
   const max = ids.reduce((acc, id) => {
     const text = String(id || '');
-
-    if (!text.startsWith(prefix)) {
-      return acc;
-    }
-
+    if (!text.startsWith(prefix)) return acc;
     const number = Number(text.replace(/\D/g, ''));
-
     return isNaN(number) ? acc : Math.max(acc, number);
   }, 0);
 

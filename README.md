@@ -142,3 +142,18 @@ VITE_APP_TOKEN=gastos-mile-2026-token-seguro
 - Exportar reporte mensual.
 - Editar categorías desde la app.
 - Presupuesto mensual por categoría.
+
+## Optimización móvil Fase 1A.1
+
+La app está optimizada principalmente para celular:
+
+- Menú superior fijo en pantallas pequeñas.
+- Navegación horizontal táctil.
+- Formularios a una columna.
+- Botones y campos con tamaño cómodo para dedo.
+- Historial de Milena en tarjetas móviles.
+- Gastos Rafa en tarjetas móviles.
+- Tablas conservadas para PC.
+- Inputs ajustados para evitar zoom automático en móviles.
+
+No se modificó la estructura de Google Sheets ni el Apps Script para estos ajustes visuales.
