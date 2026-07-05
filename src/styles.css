@@ -982,7 +982,7 @@ select {
   }
 }
 
-/* Fase 2C: acciones reales de actualización/caché */
+/* Acciones de actualización */
 .status-actions {
   display: flex;
   flex-wrap: wrap;
@@ -994,6 +994,43 @@ select {
   justify-self: auto;
 }
 
-.repair-button {
-  border-color: #d7c4aa;
+
+/* Fase 2D: botón pequeño de recarga, sin enfoque PWA */
+.status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.icon-button {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #fffaf3;
+  color: var(--primary-dark);
+  font-size: 1.1rem;
+  font-weight: 900;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-soft);
+}
+
+.icon-button:active {
+  transform: translateY(1px);
+}
+
+@media (max-width: 720px) {
+  .status-actions {
+    display: grid;
+    grid-template-columns: 1fr auto;
+  }
+
+  .status-actions .secondary {
+    width: 100%;
+  }
 }

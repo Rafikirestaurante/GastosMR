@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getCachedRemoteSnapshot, sheetsRequest } from './api/sheetsApi.js';
-import { APP_VERSION, cleanOldAppCache, forceCleanAndReload } from './utils/appVersion.js';
 import {
   currentMonthKey,
   getMonthKey,
@@ -27,6 +26,14 @@ const emptyRafa = {
   monto: '',
   categoria: ''
 };
+
+const APP_VERSION = 'Fase 2D';
+
+function reloadApp() {
+  const url = new URL(window.location.href);
+  url.searchParams.set('v', String(Date.now()));
+  window.location.replace(url.toString());
+}
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', short: 'Inicio' },
@@ -58,7 +65,7 @@ function Card({ title, value, detail }) {
   );
 }
 
-function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefresh, updateInfo }) {
+function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefresh }) {
   let connectionBanner = null;
 
   if (loading) {
@@ -66,7 +73,7 @@ function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefr
   } else if (error && cachedAt) {
     connectionBanner = (
       <div className="banner warning">
-        {error} Se está mostrando la última información guardada en este dispositivo.
+        No se pudo actualizar desde Google Sheets. Se muestra la última información guardada en este dispositivo.
       </div>
     );
   } else if (error) {
@@ -85,24 +92,19 @@ function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefr
     <div className="status-wrap">
       {connectionBanner}
       {notice && !error ? <div className="banner success">{notice}</div> : null}
-      {updateInfo?.versionChanged ? (
-        <div className="banner success">
-          App actualizada a la última versión. Se limpiaron cachés antiguos del navegador.
-        </div>
-      ) : null}
       {error && !hasData ? (
         <div className="connection-help">
-          <strong>Problema de actualización detectado:</strong>
-          <span>La app puede estar cargando una versión vieja guardada por el navegador o una PWA anterior.</span>
-          <span>Usa “Reparar app en este dispositivo” para limpiar cachés internos y recargar la versión publicada.</span>
+          <strong>No se pudieron cargar los datos en este dispositivo.</strong>
+          <span>La app ahora intenta conectarse primero por un puente interno de Vercel y, si no está disponible, usa Apps Script directo.</span>
+          <span>Presiona actualizar o recarga con el ícono para volver a intentar.</span>
         </div>
       ) : null}
       <div className="status-actions">
         <button className="secondary" type="button" onClick={onRefresh} disabled={loading}>
           {loading ? 'Actualizando...' : 'Actualizar datos'}
         </button>
-        <button className="secondary repair-button" type="button" onClick={forceCleanAndReload}>
-          Reparar app en este dispositivo
+        <button className="icon-button" type="button" onClick={reloadApp} title="Recargar app" aria-label="Recargar app">
+          ↻
         </button>
       </div>
     </div>
@@ -561,7 +563,6 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const [cachedAt, setCachedAt] = useState('');
   const [editing, setEditing] = useState(null);
-  const [updateInfo, setUpdateInfo] = useState(null);
 
   async function loadData() {
     try {
@@ -589,19 +590,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    let mounted = true;
-
-    async function startApp() {
-      const info = await cleanOldAppCache().catch(() => ({ versionChanged: false }));
-      if (mounted) setUpdateInfo(info);
-      await loadData();
-    }
-
-    startApp();
-
-    return () => {
-      mounted = false;
-    };
+    loadData();
   }, []);
 
   async function saveMile(data) {
@@ -669,7 +658,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 2C</small>
+            <small>Milena · Fase 2D</small>
           </div>
         </div>
         <nav>
@@ -693,7 +682,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 2C</span>
+          <span className="version" title={APP_VERSION}>Fase 2D</span>
         </header>
 
         <StatusBar
@@ -704,7 +693,6 @@ export default function App() {
           cachedAt={cachedAt}
           hasData={mile.length > 0 || rafa.length > 0}
           onRefresh={loadData}
-          updateInfo={updateInfo}
         />
 
         {loading ? <div className="panel loading">Cargando información...</div> : null}

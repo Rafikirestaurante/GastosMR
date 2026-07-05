@@ -1,10 +1,9 @@
 import { todayISO } from '../utils/format.js';
-import { APP_VERSION } from '../utils/appVersion.js';
-
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || '';
 const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || '';
 const DEMO_KEY = 'control-gastos-milena-demo-v1';
 const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v1';
+const PROXY_URL = '/api/sheets';
 
 const sampleState = {
   config: {
@@ -142,6 +141,27 @@ async function localRequest(action, payload = {}) {
   return { ok: false, message: 'Acción no soportada en modo demo.' };
 }
 
+async function proxyRequest(action, payload = {}) {
+  const response = await fetch(PROXY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, payload }),
+    cache: 'no-store'
+  });
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('El puente interno de Vercel no está disponible todavía.');
+  }
+
+  const data = await response.json();
+  if (!response.ok || !data?.ok) {
+    throw new Error(data?.message || 'No se pudo procesar la solicitud desde Vercel.');
+  }
+
+  return data;
+}
+
 function jsonpRequest(action, payload = {}) {
   return new Promise((resolve, reject) => {
     const callbackName = `cg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -151,9 +171,9 @@ function jsonpRequest(action, payload = {}) {
     url.searchParams.set('payload', JSON.stringify(payload));
     url.searchParams.set('callback', callbackName);
     url.searchParams.set('_', String(Date.now()));
-    url.searchParams.set('appVersion', APP_VERSION);
-
     const script = document.createElement('script');
+    script.async = true;
+    script.referrerPolicy = 'no-referrer';
     const timeout = window.setTimeout(() => {
       cleanup();
       reject(new Error('La solicitud a Google Sheets tardó demasiado en este dispositivo. Revisa la conexión del celular o abre nuevamente la app.'));
@@ -176,7 +196,7 @@ function jsonpRequest(action, payload = {}) {
 
     script.onerror = () => {
       cleanup();
-      reject(new Error('No se pudo cargar Google Apps Script desde este dispositivo. Puede haber una versión vieja de la app retenida por el navegador móvil o una PWA anterior.'));
+      reject(new Error('No se pudo cargar Google Apps Script directamente desde este dispositivo. La app intentó usar el puente de Vercel y el acceso directo, pero ambos fallaron.')); 
     };
 
     script.src = url.toString();
@@ -187,10 +207,26 @@ function jsonpRequest(action, payload = {}) {
 export async function sheetsRequest(action, payload = {}) {
   const useDemo = !APPS_SCRIPT_URL || APPS_SCRIPT_URL.includes('PEGA_AQUI') || !APP_TOKEN;
   if (useDemo) return localRequest(action, payload);
-  const response = await jsonpRequest(action, payload);
-  if (action === 'bootstrap' && response?.data) {
-    saveRemoteSnapshot(response.data);
+
+  let proxyError = null;
+  try {
+    const response = await proxyRequest(action, payload);
+    if (action === 'bootstrap' && response?.data) {
+      saveRemoteSnapshot(response.data);
+    }
+    return response;
+  } catch (error) {
+    proxyError = error;
   }
-  return response;
+
+  try {
+    const response = await jsonpRequest(action, payload);
+    if (action === 'bootstrap' && response?.data) {
+      saveRemoteSnapshot(response.data);
+    }
+    return response;
+  } catch (directError) {
+    throw new Error(directError.message || proxyError?.message || 'No se pudo conectar con Google Apps Script.');
+  }
 }
 

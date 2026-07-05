@@ -198,14 +198,28 @@ Si pide iniciar sesión, muestra permiso denegado o no abre, el problema está e
 - Panel de revisión rápida visible cuando no hay datos y falla la conexión.
 
 
-## Fase 2C - control real de caché móvil
+## Fase 2D - Conexión móvil corregida sin PWA
 
-Esta versión agrega una corrección estructural para evitar que el navegador móvil o una PWA anterior sigan cargando una versión vieja de la app. Incluye:
+Esta versión elimina el enfoque anterior de PWA/service workers porque la aplicación no depende de PWA.
 
-- `vercel.json` con headers no-cache para `/` e `index.html`.
-- Limpieza automática de cachés al cambiar la versión interna de la app.
-- Desregistro automático de service workers antiguos.
-- Botón **Reparar app en este dispositivo** dentro de la aplicación.
-- Archivos `public/sw.js` y `public/service-worker.js` para reemplazar y desactivar service workers anteriores.
+Cambios principales:
 
-Si en modo incógnito funciona pero en ventana normal no, esta versión busca corregirlo desde la aplicación y el despliegue, no mediante instrucciones manuales al usuario.
+- Se quitó el botón grande **Reparar app en este dispositivo**.
+- Se agregó un botón pequeño con ícono **↻** para recargar la aplicación.
+- Se agregó la función interna `api/sheets.js` para que Vercel actúe como puente entre el celular y Google Apps Script.
+- La app primero intenta conectar por `/api/sheets` y solo si eso falla intenta el método directo JSONP.
+- No cambia la estructura de Google Sheets ni el Apps Script.
+
+Variables requeridas en Vercel:
+
+```txt
+VITE_APPS_SCRIPT_URL=URL_DEL_WEB_APP_TERMINADA_EN_/exec
+VITE_APP_TOKEN=TOKEN_CONFIGURADO_EN_APPS_SCRIPT
+```
+
+El despliegue de Apps Script debe mantenerse como:
+
+```txt
+Ejecutar como: Yo
+Quién tiene acceso: Cualquier persona
+```
