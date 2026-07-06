@@ -218,6 +218,26 @@ h3 {
   border-color: #f4b5af;
 }
 
+
+.connection-help {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.85rem 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  background: rgba(255, 250, 243, 0.85);
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.connection-help strong {
+  color: var(--text);
+}
+
+.connection-help span {
+  display: block;
+}
+
 .panel,
 .subpanel,
 .card {
@@ -328,6 +348,16 @@ h3 {
 .expense {
   color: var(--danger);
   font-style: normal;
+  font-weight: 900;
+}
+
+.income-cell {
+  color: var(--success);
+  font-weight: 900;
+}
+
+.expense-cell {
+  color: var(--danger);
   font-weight: 900;
 }
 
@@ -797,150 +827,220 @@ select {
   }
 }
 
-/* Ajustes Fase 2A: Dashboard con rango de fechas y columnas visibles */
-.dashboard-head {
-  align-items: center;
+/* Ajustes Fase 2A: corrección de conexión y experiencia móvil */
+.banner.info {
+  background: #eef4ff;
+  color: #1d4ed8;
+  border-color: #bfd7ff;
 }
 
-.dashboard-actions {
-  display: flex;
-  align-items: end;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.dashboard-actions .secondary {
-  min-width: 220px;
-}
-
-.range-table-panel {
-  margin-bottom: 1rem;
-}
-
-.range-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.range-head h3 {
-  margin-bottom: 0.25rem;
-}
-
-.range-tools {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(150px, 1fr)) repeat(3, auto);
-  align-items: end;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
-}
-
-.range-summary {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(160px, 1fr));
-  gap: 0.75rem;
-  margin-bottom: 1rem;
-}
-
-.column-controls {
-  padding: 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: #fbf4ec;
-  margin-bottom: 1rem;
-}
-
-.column-controls-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
-}
-
-.column-checks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.check-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: white;
-  padding: 0.45rem 0.7rem;
-  font-size: 0.88rem;
-  cursor: pointer;
-}
-
-.check-pill input {
-  width: auto;
-  min-height: auto;
-  accent-color: var(--primary);
-}
-
-.range-table-wrap table {
-  min-width: 1080px;
-}
-
-.range-table-wrap em,
-.mobile-record-meta em {
-  font-style: normal;
-}
-
-@media (max-width: 1180px) {
-  .range-tools {
-    grid-template-columns: repeat(2, minmax(150px, 1fr));
-  }
-
-  .range-tools button {
-    width: 100%;
-  }
-
-  .range-summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.nav-label-short {
+  display: none;
 }
 
 @media (max-width: 720px) {
-  .dashboard-actions,
-  .range-head,
-  .column-controls-head {
+  .app-shell {
+    display: block;
+    min-height: 100dvh;
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    padding: 0.85rem;
+    box-shadow: none;
+  }
+
+  .brand {
+    margin-bottom: 0;
+  }
+
+  .brand > span {
+    width: 40px;
+    height: 40px;
+  }
+
+  .sidebar nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
     display: grid;
-    justify-content: stretch;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.28rem;
+    overflow: visible;
+    padding: 0.5rem 0.45rem calc(0.5rem + env(safe-area-inset-bottom));
+    background: #33251d;
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: 0 -12px 30px rgba(29, 20, 14, 0.24);
   }
 
-  .dashboard-actions .secondary,
-  .range-tools button,
-  .column-controls-head button {
-    width: 100%;
+  .sidebar nav button {
     min-width: 0;
+    min-height: 48px;
+    padding: 0.45rem 0.25rem;
+    border-radius: 12px;
+    font-size: 0.76rem;
+    line-height: 1.1;
+    text-align: center;
+    display: grid;
+    place-items: center;
+    white-space: normal;
   }
 
-  .range-tools,
-  .range-summary {
+  .nav-label-full {
+    display: none;
+  }
+
+  .nav-label-short {
+    display: block;
+  }
+
+  .content {
+    padding: 0.85rem 0.85rem 6.4rem;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .version {
+    flex: 0 0 auto;
+    font-size: 0.78rem;
+    padding: 0.42rem 0.65rem;
+  }
+
+  .status-wrap {
+    gap: 0.5rem;
+  }
+
+  .banner {
+    padding: 0.7rem 0.8rem;
+    border-radius: 13px;
+    font-size: 0.92rem;
+    line-height: 1.35;
+  }
+
+
+  .connection-help {
+    padding: 0.75rem 0.8rem;
+    font-size: 0.86rem;
+  }
+
+  .panel {
+    padding: 0.85rem;
+    margin-bottom: 0.85rem;
+  }
+
+  .panel-head {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+  }
+
+  .cards-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .card span,
+  .card small {
+    font-size: 0.78rem;
+    line-height: 1.2;
+  }
+
+  .card strong {
+    font-size: 1rem;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+  }
+
+  .form-grid,
+  .filters,
+  .two-col,
+  .three-col {
     grid-template-columns: 1fr;
   }
 
-  .column-checks {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+  .mobile-record {
+    border-radius: 16px;
+    padding: 0.85rem;
   }
 
-  .check-pill {
-    border-radius: 12px;
-    justify-content: flex-start;
+  .mobile-record-head {
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .mobile-record-head em {
+    align-self: flex-start;
+    text-align: left;
+    white-space: normal;
   }
 }
 
-@media (max-width: 420px) {
-  .column-checks {
+@media (max-width: 360px) {
+  .cards-grid {
     grid-template-columns: 1fr;
+  }
+
+  .sidebar nav button {
+    font-size: 0.7rem;
+  }
+}
+
+/* Acciones de actualización */
+.status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.status-actions .secondary {
+  justify-self: auto;
+}
+
+
+/* Fase 2D: botón pequeño de recarga, sin enfoque PWA */
+.status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.icon-button {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #fffaf3;
+  color: var(--primary-dark);
+  font-size: 1.1rem;
+  font-weight: 900;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-soft);
+}
+
+.icon-button:active {
+  transform: translateY(1px);
+}
+
+@media (max-width: 720px) {
+  .status-actions {
+    display: grid;
+    grid-template-columns: 1fr auto;
+  }
+
+  .status-actions .secondary {
+    width: 100%;
   }
 }
