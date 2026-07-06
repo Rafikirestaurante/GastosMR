@@ -1,41 +1,32 @@
 /************************************************************
- * Control Gastos Milena - Fase 2F
- * Backend Google Apps Script para Google Sheets.
+ * Control Gastos Milena - Fase 1A
+ * Backend en Google Apps Script para usar Google Sheets como BD.
  *
- * Hoja principal activa: "Tabla Oficial".
- * La hoja anterior "Gastos Mile" queda desactivada para la app.
- *
- * Columnas esperadas en Tabla Oficial:
- * Gastos Fecha | Proveedor | Concepto | Ingreso | Egreso | Categoría | Subcategoría
- *
- * Fase 2F: lectura blindada para dashboard. Soporta valores como
- * $ 1.200.000, 1,200,000 o números con formato de moneda en Sheets.
- *
- * Instrucciones:
- * 1. Pega este archivo en Apps Script.
- * 2. Ajusta SPREADSHEET_ID y APP_TOKEN.
- * 3. Usa el mismo APP_TOKEN en Vercel/.env.
- * 4. Despliega como Web App: Ejecutar como Yo / Acceso Cualquier persona.
+ * 1. Pega este archivo en Extensiones > Apps Script.
+ * 2. Cambia SPREADSHEET_ID por el ID real de tu Google Sheet.
+ * 3. Cambia APP_TOKEN y usa el mismo valor en Vercel/.env.
+ * 4. Despliega como Web App: Ejecutar como Yo / Acceso Cualquiera con el enlace.
  ************************************************************/
 
 const SPREADSHEET_ID = 'PEGA_AQUI_EL_ID_DE_TU_GOOGLE_SHEET';
 const APP_TOKEN = 'cambia-este-token-largo';
 
 const SHEETS = {
-  mile: 'Tabla Oficial',
+  mile: 'Gastos Mile',
   rafa: 'Gastos Rafa',
   config: 'Configuracion'
 };
 
 const HEADERS = {
   mile: [
-    'Gastos Fecha',
+    'ID_Transaccion',
+    'Fecha',
     'Proveedor',
     'Concepto',
-    'Ingreso',
-    'Egreso',
-    'Categoría',
-    'Subcategoría'
+    'Tipo de Movimiento',
+    'Monto',
+    'Categoria',
+    'Subcategoria'
   ],
   rafa: [
     'ID_Transaccion',
@@ -47,6 +38,9 @@ const HEADERS = {
 };
 
 function doGet(e) {
+  // Cuando doGet se ejecuta desde la URL publicada, Google envía el objeto "e".
+  // Si se presiona el botón Ejecutar dentro de Apps Script, "e" llega vacío.
+  // Esta protección evita el error: Cannot read properties of undefined (reading 'parameter').
   const params = (e && e.parameter) ? e.parameter : {};
   const callback = sanitizeCallback_(params.callback || '');
 
@@ -58,10 +52,6 @@ function doGet(e) {
 
     const action = params.action || 'bootstrap';
     const payload = parsePayload_(params.payload);
-
-    if (action === 'health') {
-      return respond_({ ok: true, message: 'Apps Script conectado correctamente.' }, callback);
-    }
 
     if (action === 'bootstrap') {
       return respond_({
@@ -94,6 +84,7 @@ function doGet(e) {
     return respond_({ ok: false, message: error.message || String(error) }, callback);
   }
 }
+
 
 function probarConexion() {
   const response = doGet({
@@ -147,11 +138,10 @@ function readConfig_() {
   const sheet = getSheet_('config');
   const lastRow = Math.max(sheet.getLastRow(), 2);
   const values = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
-  const tipos = uniqueClean_(values.map(row => row[1]));
 
   return {
     categorias: uniqueClean_(values.map(row => row[0])),
-    tiposMovimiento: tipos.length ? tipos : ['Ingreso', 'Egreso'],
+    tiposMovimiento: uniqueClean_(values.map(row => row[1])),
     subcategorias: uniqueClean_(values.map(row => row[2]))
   };
 }
@@ -172,193 +162,53 @@ function readRows_(entity) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
-  if (entity === 'mile') {
-    const width = Math.max(sheet.getLastColumn(), HEADERS.mile.length);
-    const headerRow = sheet.getRange(1, 1, 1, width).getDisplayValues()[0];
-    const indexes = buildOfficialIndex_(headerRow);
-    const values = sheet.getRange(2, 1, lastRow - 1, width).getValues();
-    const displayValues = sheet.getRange(2, 1, lastRow - 1, width).getDisplayValues();
-
-    return values
-      .map((row, index) => mapMileRow_(row, index + 2, displayValues[index], indexes))
-      .filter(row => String(row.id || '').trim() !== '');
-  }
-
   const headers = HEADERS[entity];
   const values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
-  const displayValues = sheet.getRange(2, 1, lastRow - 1, headers.length).getDisplayValues();
 
   return values
-    .map((row, index) => mapRafaRow_(row, displayValues[index]))
-    .filter(row => String(row.id || '').trim() !== '');
+    .filter(row => String(row[0] || '').trim() !== '')
+    .map(row => entity === 'mile' ? mapMileRow_(row) : mapRafaRow_(row));
 }
 
-function buildOfficialIndex_(headers) {
+function mapMileRow_(row) {
   return {
-    fecha: findHeaderIndex_(headers, ['gastosfecha', 'fecha'], 0),
-    proveedor: findHeaderIndex_(headers, ['proveedor'], 1),
-    concepto: findHeaderIndex_(headers, ['concepto'], 2),
-    ingreso: findHeaderIndex_(headers, ['ingreso', 'ingresos'], 3),
-    egreso: findHeaderIndex_(headers, ['egreso', 'egresos', 'gasto', 'gastos'], 4),
-    categoria: findHeaderIndex_(headers, ['categoria'], 5),
-    subcategoria: findHeaderIndex_(headers, ['subcategoria'], 6)
+    id: String(row[0] || '').trim(),
+    fecha: formatDate_(row[1]),
+    proveedor: String(row[2] || '').trim(),
+    concepto: String(row[3] || '').trim(),
+    tipoMovimiento: String(row[4] || '').trim(),
+    monto: Number(row[5] || 0),
+    categoria: String(row[6] || '').trim(),
+    subcategoria: String(row[7] || '').trim()
   };
 }
 
-function headerKey_(value) {
-  return normalizeText_(value)
-    .replace(/\s+/g, '')
-    .replace(/_/g, '');
-}
-
-function findHeaderIndex_(headers, aliases, fallback) {
-  const normalizedAliases = aliases.map(alias => headerKey_(alias));
-  for (let i = 0; i < headers.length; i++) {
-    if (normalizedAliases.indexOf(headerKey_(headers[i])) !== -1) return i;
-  }
-  return fallback;
-}
-
-function cell_(row, index) {
-  return index >= 0 && index < row.length ? row[index] : '';
-}
-
-function mapMileRow_(row, rowNumber, displayRow, indexes) {
-  const display = displayRow || [];
-  const idx = indexes || buildOfficialIndex_(HEADERS.mile);
-  const fecha = formatDate_(cell_(row, idx.fecha), cell_(display, idx.fecha));
-  const proveedor = String(cell_(row, idx.proveedor) || cell_(display, idx.proveedor) || '').trim();
-  const concepto = String(cell_(row, idx.concepto) || cell_(display, idx.concepto) || '').trim();
-  const ingreso = parseAmount_(cell_(row, idx.ingreso), cell_(display, idx.ingreso));
-  const egreso = parseAmount_(cell_(row, idx.egreso), cell_(display, idx.egreso));
-  const categoria = String(cell_(row, idx.categoria) || cell_(display, idx.categoria) || '').trim();
-  const subcategoria = String(cell_(row, idx.subcategoria) || cell_(display, idx.subcategoria) || '').trim();
-
-  if (!fecha && !proveedor && !concepto && ingreso <= 0 && egreso <= 0) {
-    return { id: '' };
-  }
-
+function mapRafaRow_(row) {
   return {
-    id: 'TO' + rowNumber,
-    fecha: fecha,
-    proveedor: proveedor,
-    concepto: concepto,
-    ingreso: ingreso,
-    egreso: egreso,
-    tipoMovimiento: ingreso > 0 ? 'Ingreso' : 'Egreso',
-    monto: ingreso > 0 ? ingreso : egreso,
-    categoria: categoria,
-    subcategoria: subcategoria
+    id: String(row[0] || '').trim(),
+    fecha: formatDate_(row[1]),
+    concepto: String(row[2] || '').trim(),
+    monto: Number(row[3] || 0),
+    categoria: String(row[4] || '').trim()
   };
 }
 
-function mapRafaRow_(row, displayRow) {
-  const display = displayRow || [];
-  return {
-    id: String(row[0] || display[0] || '').trim(),
-    fecha: formatDate_(row[1], display[1]),
-    concepto: String(row[2] || display[2] || '').trim(),
-    monto: parseAmount_(row[3], display[3]),
-    categoria: String(row[4] || display[4] || '').trim()
-  };
-}
-
-function formatDate_(value, displayValue) {
+function formatDate_(value) {
   if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)) {
     return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   }
-
-  let text = String(value || displayValue || '').trim();
-  if (!text) return '';
-
-  const iso = text.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
-  if (iso) {
-    return iso[1] + '-' + String(iso[2]).padStart(2, '0') + '-' + String(iso[3]).padStart(2, '0');
-  }
-
-  const local = text.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
-  if (local) {
-    return local[3] + '-' + String(local[2]).padStart(2, '0') + '-' + String(local[1]).padStart(2, '0');
-  }
-
+  const text = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
   return text;
 }
 
 function parseDate_(text) {
   const value = String(text || '').trim();
-
-  let match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-
-  match = value.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-  if (match) return new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
-
-  throw new Error('La fecha debe tener formato YYYY-MM-DD.');
-}
-
-function normalizeText_(value) {
-  return String(value || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim();
-}
-
-function parseAmount_(value, displayValue) {
-  if (typeof value === 'number' && isFinite(value)) return value;
-
-  let raw = String(value || displayValue || '').trim();
-  if (!raw) return 0;
-
-  let cleaned = raw
-    .replace(/[^0-9,.-]/g, '')
-    .replace(/(?!^)-/g, '');
-
-  if (!cleaned || cleaned === '-' || cleaned === '.' || cleaned === ',') return 0;
-
-  const lastComma = cleaned.lastIndexOf(',');
-  const lastDot = cleaned.lastIndexOf('.');
-
-  if (lastComma > -1 && lastDot > -1) {
-    if (lastComma > lastDot) {
-      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
-    } else {
-      cleaned = cleaned.replace(/,/g, '');
-    }
-  } else if (lastComma > -1) {
-    const decimals = cleaned.length - lastComma - 1;
-    cleaned = decimals > 0 && decimals <= 2
-      ? cleaned.replace(',', '.')
-      : cleaned.replace(/,/g, '');
-  } else if (lastDot > -1) {
-    const parts = cleaned.split('.');
-    const decimals = cleaned.length - lastDot - 1;
-    cleaned = parts.length > 2 || decimals === 3
-      ? cleaned.replace(/\./g, '')
-      : cleaned;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error('La fecha debe tener formato YYYY-MM-DD.');
   }
-
-  const number = Number(cleaned);
-  return isFinite(number) ? number : 0;
-}
-
-function officialAmounts_(data) {
-  const ingresoDirecto = parseAmount_(data.ingreso);
-  const egresoDirecto = parseAmount_(data.egreso);
-  const tipo = normalizeText_(data.tipoMovimiento);
-  const monto = parseAmount_(data.monto);
-  const ingreso = ingresoDirecto > 0 ? ingresoDirecto : tipo === 'ingreso' ? monto : 0;
-  const egreso = egresoDirecto > 0 ? egresoDirecto : tipo === 'egreso' ? monto : 0;
-
-  if (ingreso > 0 && egreso > 0) {
-    throw new Error('Un movimiento no puede tener ingreso y egreso al mismo tiempo.');
-  }
-
-  if (ingreso <= 0 && egreso <= 0) {
-    throw new Error('Debes registrar un valor mayor que cero en Ingreso o Egreso.');
-  }
-
-  return { ingreso: ingreso, egreso: egreso };
+  const parts = value.split('-').map(Number);
+  return new Date(parts[0], parts[1] - 1, parts[2]);
 }
 
 function createRow_(entity, data) {
@@ -370,32 +220,28 @@ function createRow_(entity, data) {
 
   try {
     const sheet = getSheet_(entity);
-    if (entity === 'mile') {
-      const amounts = officialAmounts_(data);
-      const row = [
-        parseDate_(data.fecha),
-        data.proveedor,
-        data.concepto,
-        amounts.ingreso,
-        amounts.egreso,
-        data.categoria || '',
-        data.subcategoria || ''
-      ];
-      sheet.appendRow(row);
-      return mapMileRow_(row, sheet.getLastRow());
-    }
-
     const id = generateId_(entity, sheet);
-    const row = [
-      id,
-      parseDate_(data.fecha),
-      data.concepto,
-      parseAmount_(data.monto),
-      data.categoria
-    ];
+    const row = entity === 'mile'
+      ? [
+          id,
+          parseDate_(data.fecha),
+          data.proveedor,
+          data.concepto,
+          data.tipoMovimiento,
+          Number(data.monto),
+          data.categoria,
+          data.subcategoria
+        ]
+      : [
+          id,
+          parseDate_(data.fecha),
+          data.concepto,
+          Number(data.monto),
+          data.categoria
+        ];
 
     sheet.appendRow(row);
-    return mapRafaRow_(row);
+    return entity === 'mile' ? mapMileRow_(row) : mapRafaRow_(row);
   } finally {
     lock.releaseLock();
   }
@@ -411,31 +257,27 @@ function updateRow_(entity, id, data) {
 
   try {
     const sheet = getSheet_(entity);
-    const rowNumber = findRowById_(entity, sheet, id);
+    const rowNumber = findRowById_(sheet, id);
     if (!rowNumber) throw new Error('No se encontró el registro: ' + id);
 
-    if (entity === 'mile') {
-      const amounts = officialAmounts_(data);
-      const row = [
-        parseDate_(data.fecha),
-        data.proveedor,
-        data.concepto,
-        amounts.ingreso,
-        amounts.egreso,
-        data.categoria || '',
-        data.subcategoria || ''
-      ];
-      sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
-      return;
-    }
-
-    const row = [
-      id,
-      parseDate_(data.fecha),
-      data.concepto,
-      parseAmount_(data.monto),
-      data.categoria
-    ];
+    const row = entity === 'mile'
+      ? [
+          id,
+          parseDate_(data.fecha),
+          data.proveedor,
+          data.concepto,
+          data.tipoMovimiento,
+          Number(data.monto),
+          data.categoria,
+          data.subcategoria
+        ]
+      : [
+          id,
+          parseDate_(data.fecha),
+          data.concepto,
+          Number(data.monto),
+          data.categoria
+        ];
 
     sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
   } finally {
@@ -452,7 +294,7 @@ function deleteRow_(entity, id) {
 
   try {
     const sheet = getSheet_(entity);
-    const rowNumber = findRowById_(entity, sheet, id);
+    const rowNumber = findRowById_(sheet, id);
     if (!rowNumber) throw new Error('No se encontró el registro: ' + id);
     sheet.deleteRow(rowNumber);
   } finally {
@@ -462,7 +304,7 @@ function deleteRow_(entity, id) {
 
 function validateRequired_(entity, data) {
   const fields = entity === 'mile'
-    ? ['fecha', 'proveedor', 'concepto']
+    ? ['fecha', 'proveedor', 'concepto', 'tipoMovimiento', 'monto', 'categoria', 'subcategoria']
     : ['fecha', 'concepto', 'monto', 'categoria'];
 
   const missing = fields.filter(field => data[field] === undefined || data[field] === null || String(data[field]).trim() === '');
@@ -470,25 +312,12 @@ function validateRequired_(entity, data) {
     throw new Error('Faltan campos obligatorios: ' + missing.join(', '));
   }
 
-  if (entity === 'mile') {
-    officialAmounts_(data);
-    return;
-  }
-
-  if (parseAmount_(data.monto) <= 0) {
+  if (Number(data.monto) <= 0) {
     throw new Error('El monto debe ser mayor que cero.');
   }
 }
 
-function findRowById_(entity, sheet, id) {
-  if (entity === 'mile') {
-    const match = String(id || '').match(/^TO(\d+)$/);
-    if (!match) return 0;
-    const rowNumber = Number(match[1]);
-    if (rowNumber < 2 || rowNumber > sheet.getLastRow()) return 0;
-    return rowNumber;
-  }
-
+function findRowById_(sheet, id) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return 0;
   const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues().flat();
@@ -500,7 +329,7 @@ function findRowById_(entity, sheet, id) {
 }
 
 function generateId_(entity, sheet) {
-  const prefix = entity === 'mile' ? 'TO' : 'R';
+  const prefix = entity === 'mile' ? 'T' : 'R';
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return prefix + '001';
 
