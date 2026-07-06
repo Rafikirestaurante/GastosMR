@@ -1,4 +1,4 @@
-# Control Gastos Milena — Fase 2B
+# Control Gastos Milena — Fase 2E
 
 Aplicación web sencilla para controlar los gastos de Milena usando:
 
@@ -13,12 +13,14 @@ Aplicación web sencilla para controlar los gastos de Milena usando:
 
 La app espera estas pestañas exactamente con estos nombres:
 
-### Gastos Mile
+### Tabla Oficial
 
-| ID_Transaccion | Fecha | Proveedor | Concepto | Tipo de Movimiento | Monto | Categoria | Subcategoria |
-|---|---|---|---|---|---:|---|---|
+| Gastos Fecha | Proveedor | Concepto | Ingreso | Egreso | Categoría | Subcategoría |
+|---|---|---|---:|---:|---|---|
 
-Esta es la tabla principal. Todos los campos son obligatorios, excepto el ID porque lo genera automáticamente Apps Script.
+Esta es la tabla principal activa. **Gastos Mile queda desactivada** para la app. Los saldos se calculan como `Ingreso - Egreso`.
+
+Campos obligatorios para registrar desde la app: Fecha, Proveedor, Concepto, Tipo de movimiento y Monto. Categoría y Subcategoría son opcionales.
 
 ### Gastos Rafa
 
@@ -94,7 +96,7 @@ http://localhost:5173
 ```bash
 git init
 git add .
-git commit -m "Fase 2B control gastos Milena"
+git commit -m "Fase 2E tabla oficial control gastos Milena"
 git branch -M main
 git remote add origin URL_DE_TU_REPOSITORIO
 git push -u origin main
@@ -223,3 +225,26 @@ El despliegue de Apps Script debe mantenerse como:
 Ejecutar como: Yo
 Quién tiene acceso: Cualquier persona
 ```
+
+
+## Fase 2E - Tabla Oficial como base principal
+
+Esta versión migra la base principal desde **Gastos Mile** hacia **Tabla Oficial**.
+
+Columnas esperadas en Google Sheets:
+
+```txt
+Gastos Fecha | Proveedor | Concepto | Ingreso | Egreso | Categoría | Subcategoría
+```
+
+Cambios principales:
+
+- La app ya no escribe en **Gastos Mile**.
+- La entidad interna principal ahora apunta a **Tabla Oficial**.
+- El formulario conserva el selector Ingreso/Egreso para que sea fácil registrar, pero el guardado escribe el valor en la columna correspondiente.
+- Los cálculos del dashboard salen de `Ingreso - Egreso`.
+- Categoría y Subcategoría dejaron de ser obligatorios en el movimiento principal.
+- El historial muestra columnas separadas de Ingreso y Egreso.
+- Apps Script genera referencias internas tipo `TO2`, `TO3`, etc., basadas en la fila, para poder editar y borrar sin agregar una columna ID visible a la Tabla Oficial.
+
+Después de actualizar esta versión, copia nuevamente `apps-script/Code.gs` en Google Apps Script, guarda y vuelve a desplegar la Web App si Google lo solicita.

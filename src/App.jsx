@@ -4,7 +4,6 @@ import {
   currentMonthKey,
   getMonthKey,
   money,
-  movementSign,
   normalizeText,
   sumBy,
   todayISO
@@ -27,7 +26,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 2D';
+const APP_VERSION = 'Fase 2E';
 
 function reloadApp() {
   const url = new URL(window.location.href);
@@ -37,11 +36,48 @@ function reloadApp() {
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', short: 'Inicio' },
-  { id: 'nuevo', label: 'Nuevo Milena', short: 'Nuevo' },
-  { id: 'historial', label: 'Historial Milena', short: 'Historial' },
+  { id: 'nuevo', label: 'Nuevo registro', short: 'Nuevo' },
+  { id: 'historial', label: 'Tabla Oficial', short: 'Historial' },
   { id: 'rafa', label: 'Gastos Rafa', short: 'Rafa' },
   { id: 'config', label: 'Configuración', short: 'Config' }
 ];
+
+
+function getIngreso(row) {
+  return Number(row.ingreso || 0);
+}
+
+function getEgreso(row) {
+  return Number(row.egreso || 0);
+}
+
+function getMovementType(row) {
+  if (getIngreso(row) > 0 && getEgreso(row) <= 0) return 'Ingreso';
+  if (getEgreso(row) > 0 && getIngreso(row) <= 0) return 'Egreso';
+  return row.tipoMovimiento || 'Egreso';
+}
+
+function getMovementAmount(row) {
+  if (getIngreso(row) > 0) return getIngreso(row);
+  if (getEgreso(row) > 0) return getEgreso(row);
+  return Number(row.monto || 0);
+}
+
+function toOfficialPayload(data) {
+  const type = normalizeText(data.tipoMovimiento);
+  const amount = Number(data.monto || 0);
+  return {
+    fecha: data.fecha,
+    proveedor: data.proveedor,
+    concepto: data.concepto,
+    ingreso: type === 'ingreso' ? amount : 0,
+    egreso: type === 'egreso' ? amount : 0,
+    tipoMovimiento: data.tipoMovimiento,
+    monto: amount,
+    categoria: data.categoria || '',
+    subcategoria: data.subcategoria || ''
+  };
+}
 
 function requireFields(data, fields) {
   const missing = fields.filter((field) => {
@@ -113,19 +149,10 @@ function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefr
 
 function Dashboard({ mile, rafa, month, setMonth }) {
   const monthRows = mile.filter((row) => getMonthKey(row.fecha) === month);
-  const totalIngresos = sumBy(
-    monthRows.filter((row) => normalizeText(row.tipoMovimiento) === 'ingreso'),
-    (row) => row.monto
-  );
-  const totalEgresos = sumBy(
-    monthRows.filter((row) => normalizeText(row.tipoMovimiento) === 'egreso'),
-    (row) => row.monto
-  );
+  const totalIngresos = sumBy(monthRows, getIngreso);
+  const totalEgresos = sumBy(monthRows, getEgreso);
   const saldoMes = totalIngresos - totalEgresos;
-  const saldoAcumulado = mile.reduce(
-    (total, row) => total + movementSign(row.tipoMovimiento) * Number(row.monto || 0),
-    0
-  );
+  const saldoAcumulado = mile.reduce((total, row) => total + getIngreso(row) - getEgreso(row), 0);
   const rafaMes = sumBy(
     rafa.filter((row) => getMonthKey(row.fecha) === month),
     (row) => row.monto
@@ -133,9 +160,9 @@ function Dashboard({ mile, rafa, month, setMonth }) {
 
   const byCategory = Object.entries(
     monthRows.reduce((acc, row) => {
-      if (normalizeText(row.tipoMovimiento) !== 'egreso') return acc;
+      if (getEgreso(row) <= 0) return acc;
       const key = row.categoria || 'Sin categoría';
-      acc[key] = (acc[key] || 0) + Number(row.monto || 0);
+      acc[key] = (acc[key] || 0) + getEgreso(row);
       return acc;
     }, {})
   )
@@ -193,8 +220,8 @@ function Dashboard({ mile, rafa, month, setMonth }) {
                   <strong>{row.concepto}</strong>
                   <span>{row.fecha} · {row.categoria}</span>
                 </div>
-                <em className={normalizeText(row.tipoMovimiento) === 'ingreso' ? 'income' : 'expense'}>
-                  {normalizeText(row.tipoMovimiento) === 'ingreso' ? '+' : '-'}{money(row.monto)}
+                <em className={getIngreso(row) > 0 ? 'income' : 'expense'}>
+                  {getIngreso(row) > 0 ? '+' : '-'}{money(getMovementAmount(row))}
                 </em>
               </div>
             ))}
@@ -225,15 +252,13 @@ function MileForm({ config, initialData, editingId, onCancel, onSubmit, saving }
       'proveedor',
       'concepto',
       'tipoMovimiento',
-      'monto',
-      'categoria',
-      'subcategoria'
+      'monto'
     ]);
     if (error) {
       setLocalError(error);
       return;
     }
-    onSubmit({ ...form, monto: Number(form.monto) });
+    onSubmit(toOfficialPayload({ ...form, monto: Number(form.monto) }));
   }
 
   return (
@@ -269,7 +294,7 @@ function MileForm({ config, initialData, editingId, onCancel, onSubmit, saving }
       </label>
 
       <label>
-        Categoría <span>*</span>
+        Categoría
         <select value={form.categoria} onChange={(event) => update('categoria', event.target.value)}>
           <option value="">Seleccionar</option>
           {config.categorias.map((item) => (
@@ -279,7 +304,7 @@ function MileForm({ config, initialData, editingId, onCancel, onSubmit, saving }
       </label>
 
       <label>
-        Subcategoría <span>*</span>
+        Subcategoría
         <select value={form.subcategoria} onChange={(event) => update('subcategoria', event.target.value)}>
           <option value="">Seleccionar</option>
           {config.subcategorias.map((item) => (
@@ -311,7 +336,7 @@ function History({ rows, config, onEdit, onDelete }) {
       .filter((row) => {
         const matchesQuery = !q || [row.proveedor, row.concepto, row.categoria, row.subcategoria, row.id]
           .some((value) => normalizeText(value).includes(q));
-        const matchesType = !type || row.tipoMovimiento === type;
+        const matchesType = !type || getMovementType(row) === type;
         const matchesCategory = !category || row.categoria === category;
         const matchesFrom = !from || row.fecha >= from;
         const matchesTo = !to || row.fecha <= to;
@@ -324,8 +349,8 @@ function History({ rows, config, onEdit, onDelete }) {
     <section className="panel">
       <div className="panel-head">
         <div>
-          <p className="eyebrow">Consulta principal</p>
-          <h2>Historial Milena</h2>
+          <p className="eyebrow">Base de datos principal</p>
+          <h2>Tabla Oficial</h2>
         </div>
         <strong>{filtered.length} registros</strong>
       </div>
@@ -344,7 +369,7 @@ function History({ rows, config, onEdit, onDelete }) {
         <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
       </div>
 
-      <div className="mobile-records" aria-label="Historial Milena en tarjetas">
+      <div className="mobile-records" aria-label="Tabla Oficial en tarjetas">
         {filtered.map((row) => (
           <article className="mobile-record" key={`mobile-${row.id}`}>
             <div className="mobile-record-head">
@@ -352,15 +377,16 @@ function History({ rows, config, onEdit, onDelete }) {
                 <strong>{row.concepto}</strong>
                 <span>{row.fecha} · {row.id}</span>
               </div>
-              <em className={normalizeText(row.tipoMovimiento) === 'ingreso' ? 'income' : 'expense'}>
-                {normalizeText(row.tipoMovimiento) === 'ingreso' ? '+' : '-'}{money(row.monto)}
+              <em className={getIngreso(row) > 0 ? 'income' : 'expense'}>
+                {getIngreso(row) > 0 ? '+' : '-'}{money(getMovementAmount(row))}
               </em>
             </div>
             <div className="mobile-record-meta">
               <span><b>Proveedor:</b> {row.proveedor}</span>
-              <span><b>Tipo:</b> {row.tipoMovimiento}</span>
-              <span><b>Categoría:</b> {row.categoria}</span>
-              <span><b>Subcategoría:</b> {row.subcategoria}</span>
+              <span><b>Ingreso:</b> {money(getIngreso(row))}</span>
+              <span><b>Egreso:</b> {money(getEgreso(row))}</span>
+              <span><b>Categoría:</b> {row.categoria || 'Sin categoría'}</span>
+              <span><b>Subcategoría:</b> {row.subcategoria || 'Sin subcategoría'}</span>
             </div>
             <div className="row-actions mobile-actions">
               <button className="small" type="button" onClick={() => onEdit(row)}>Editar</button>
@@ -379,8 +405,8 @@ function History({ rows, config, onEdit, onDelete }) {
               <th>Fecha</th>
               <th>Proveedor</th>
               <th>Concepto</th>
-              <th>Tipo</th>
-              <th>Monto</th>
+              <th>Ingreso</th>
+              <th>Egreso</th>
               <th>Categoría</th>
               <th>Subcategoría</th>
               <th>Acciones</th>
@@ -393,10 +419,10 @@ function History({ rows, config, onEdit, onDelete }) {
                 <td>{row.fecha}</td>
                 <td>{row.proveedor}</td>
                 <td>{row.concepto}</td>
-                <td><span className={`pill ${normalizeText(row.tipoMovimiento)}`}>{row.tipoMovimiento}</span></td>
-                <td>{money(row.monto)}</td>
-                <td>{row.categoria}</td>
-                <td>{row.subcategoria}</td>
+                <td className="income-cell">{getIngreso(row) > 0 ? money(getIngreso(row)) : '-'}</td>
+                <td className="expense-cell">{getEgreso(row) > 0 ? money(getEgreso(row)) : '-'}</td>
+                <td>{row.categoria || '-'}</td>
+                <td>{row.subcategoria || '-'}</td>
                 <td className="row-actions">
                   <button className="small" type="button" onClick={() => onEdit(row)}>Editar</button>
                   <button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button>
@@ -457,7 +483,7 @@ function RafaModule({ rows, config, onCreate, onDelete, saving }) {
           <input type="number" min="1" value={form.monto} onChange={(event) => update('monto', event.target.value)} />
         </label>
         <label>
-          Categoría <span>*</span>
+          Categoría
           <select value={form.categoria} onChange={(event) => update('categoria', event.target.value)}>
             <option value="">Seleccionar</option>
             {config.categorias.map((item) => <option key={item} value={item}>{item}</option>)}
@@ -544,7 +570,7 @@ function ConfigPanel({ config }) {
         </article>
       </div>
       <p className="muted note">
-        En esta Fase 1A estas listas se administran directamente desde la pestaña Configuracion de Google Sheets.
+        Estas listas se administran directamente desde la pestaña Configuracion de Google Sheets. En la Tabla Oficial, Categoría y Subcategoría son opcionales.
       </p>
     </section>
   );
@@ -630,7 +656,7 @@ export default function App() {
   }
 
   async function deleteRow(entity, row) {
-    const label = entity === 'rafa' ? 'este gasto de Rafa' : 'este movimiento de Milena';
+    const label = entity === 'rafa' ? 'este gasto de Rafa' : 'este movimiento de la Tabla Oficial';
     const confirmDelete = window.confirm(`¿Seguro que deseas borrar ${label}? Esta acción no se puede deshacer.`);
     if (!confirmDelete) return;
     try {
@@ -658,7 +684,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 2D</small>
+            <small>Milena · Fase 2E</small>
           </div>
         </div>
         <nav>
@@ -682,7 +708,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 2D</span>
+          <span className="version" title={APP_VERSION}>Fase 2E</span>
         </header>
 
         <StatusBar
@@ -705,8 +731,8 @@ export default function App() {
           <section className="panel">
             <div className="panel-head">
               <div>
-                <p className="eyebrow">Formulario obligatorio</p>
-                <h2>{editing ? `Editando ${editing.id}` : 'Nuevo movimiento Milena'}</h2>
+                <p className="eyebrow">Tabla Oficial</p>
+                <h2>{editing ? `Editando ${editing.id}` : 'Nuevo movimiento'}</h2>
               </div>
             </div>
             <MileForm

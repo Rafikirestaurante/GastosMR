@@ -351,6 +351,16 @@ h3 {
   font-weight: 900;
 }
 
+.income-cell {
+  color: var(--success);
+  font-weight: 900;
+}
+
+.expense-cell {
+  color: var(--danger);
+  font-weight: 900;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(220px, 1fr));

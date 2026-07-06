@@ -1,9 +1,29 @@
-import { todayISO } from '../utils/format.js';
+import { normalizeText, todayISO } from '../utils/format.js';
+
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || '';
 const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || '';
-const DEMO_KEY = 'control-gastos-milena-demo-v1';
-const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v1';
+const DEMO_KEY = 'control-gastos-milena-demo-v2-tabla-oficial';
+const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v2-tabla-oficial';
 const PROXY_URL = '/api/sheets';
+
+function normalizeOfficialRow(data = {}) {
+  const ingreso = Number(data.ingreso || 0);
+  const egreso = Number(data.egreso || 0);
+  const type = normalizeText(data.tipoMovimiento);
+  const amount = Number(data.monto || 0);
+  const finalIngreso = ingreso > 0 ? ingreso : type === 'ingreso' ? amount : 0;
+  const finalEgreso = egreso > 0 ? egreso : type === 'egreso' ? amount : 0;
+
+  return {
+    ...data,
+    ingreso: finalIngreso,
+    egreso: finalEgreso,
+    tipoMovimiento: finalIngreso > 0 ? 'Ingreso' : 'Egreso',
+    monto: finalIngreso > 0 ? finalIngreso : finalEgreso,
+    categoria: data.categoria || '',
+    subcategoria: data.subcategoria || ''
+  };
+}
 
 const sampleState = {
   config: {
@@ -24,26 +44,26 @@ const sampleState = {
     subcategorias: ['Inicio', 'Apto', 'Personal']
   },
   mile: [
-    {
-      id: 'T001',
+    normalizeOfficialRow({
+      id: 'TO002',
       fecha: todayISO().slice(0, 8) + '01',
       proveedor: 'Sistema',
       concepto: 'Saldo Inicial',
-      tipoMovimiento: 'Ingreso',
-      monto: 3474387,
+      ingreso: 3474387,
+      egreso: 0,
       categoria: 'Ahorro',
       subcategoria: 'Inicio'
-    },
-    {
-      id: 'T002',
+    }),
+    normalizeOfficialRow({
+      id: 'TO003',
       fecha: todayISO(),
       proveedor: 'Supermercado',
       concepto: 'Compra de mercado',
-      tipoMovimiento: 'Egreso',
-      monto: 85000,
+      ingreso: 0,
+      egreso: 85000,
       categoria: 'Alimentacion',
       subcategoria: 'Personal'
-    }
+    })
   ],
   rafa: [
     {
@@ -60,7 +80,12 @@ function getDemoState() {
   const raw = localStorage.getItem(DEMO_KEY);
   if (!raw) return structuredClone(sampleState);
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return {
+      ...parsed,
+      mile: (parsed.mile || []).map(normalizeOfficialRow),
+      rafa: parsed.rafa || []
+    };
   } catch {
     return structuredClone(sampleState);
   }
@@ -69,7 +94,6 @@ function getDemoState() {
 function saveDemoState(state) {
   localStorage.setItem(DEMO_KEY, JSON.stringify(state));
 }
-
 
 function saveRemoteSnapshot(data) {
   try {
@@ -115,8 +139,9 @@ async function localRequest(action, payload = {}) {
 
   if (action === 'create') {
     const key = payload.entity === 'rafa' ? 'rafa' : 'mile';
-    const prefix = key === 'rafa' ? 'R' : 'T';
-    const row = { ...payload.data, id: nextId(state[key], prefix) };
+    const prefix = key === 'rafa' ? 'R' : 'TO';
+    const rawRow = { ...payload.data, id: nextId(state[key], prefix) };
+    const row = key === 'mile' ? normalizeOfficialRow(rawRow) : rawRow;
     state[key] = [row, ...state[key]];
     saveDemoState(state);
     return { ok: true, demo: true, data: row };
@@ -124,9 +149,11 @@ async function localRequest(action, payload = {}) {
 
   if (action === 'update') {
     const key = payload.entity === 'rafa' ? 'rafa' : 'mile';
-    state[key] = state[key].map((item) =>
-      item.id === payload.id ? { ...item, ...payload.data, id: payload.id } : item
-    );
+    state[key] = state[key].map((item) => {
+      if (item.id !== payload.id) return item;
+      const updated = { ...item, ...payload.data, id: payload.id };
+      return key === 'mile' ? normalizeOfficialRow(updated) : updated;
+    });
     saveDemoState(state);
     return { ok: true, demo: true };
   }
@@ -196,7 +223,7 @@ function jsonpRequest(action, payload = {}) {
 
     script.onerror = () => {
       cleanup();
-      reject(new Error('No se pudo cargar Google Apps Script directamente desde este dispositivo. La app intentó usar el puente de Vercel y el acceso directo, pero ambos fallaron.')); 
+      reject(new Error('No se pudo cargar Google Apps Script directamente desde este dispositivo. La app intentó usar el puente de Vercel y el acceso directo, pero ambos fallaron.'));
     };
 
     script.src = url.toString();
@@ -229,4 +256,3 @@ export async function sheetsRequest(action, payload = {}) {
     throw new Error(directError.message || proxyError?.message || 'No se pudo conectar con Google Apps Script.');
   }
 }
-

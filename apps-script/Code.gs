@@ -1,10 +1,17 @@
 /************************************************************
- * Control Gastos Milena - Fase 1A
- * Backend en Google Apps Script para usar Google Sheets como BD.
+ * Control Gastos Milena - Fase 2E
+ * Backend Google Apps Script para Google Sheets.
  *
- * 1. Pega este archivo en Extensiones > Apps Script.
- * 2. Cambia SPREADSHEET_ID por el ID real de tu Google Sheet.
- * 3. Cambia APP_TOKEN y usa el mismo valor en Vercel/.env.
+ * Hoja principal activa: "Tabla Oficial".
+ * La hoja anterior "Gastos Mile" queda desactivada para la app.
+ *
+ * Columnas esperadas en Tabla Oficial:
+ * Gastos Fecha | Proveedor | Concepto | Ingreso | Egreso | Categoría | Subcategoría
+ *
+ * Instrucciones:
+ * 1. Pega este archivo en Apps Script.
+ * 2. Ajusta SPREADSHEET_ID y APP_TOKEN.
+ * 3. Usa el mismo APP_TOKEN en Vercel/.env.
  * 4. Despliega como Web App: Ejecutar como Yo / Acceso Cualquier persona.
  ************************************************************/
 
@@ -12,21 +19,20 @@ const SPREADSHEET_ID = 'PEGA_AQUI_EL_ID_DE_TU_GOOGLE_SHEET';
 const APP_TOKEN = 'cambia-este-token-largo';
 
 const SHEETS = {
-  mile: 'Gastos Mile',
+  mile: 'Tabla Oficial',
   rafa: 'Gastos Rafa',
   config: 'Configuracion'
 };
 
 const HEADERS = {
   mile: [
-    'ID_Transaccion',
-    'Fecha',
+    'Gastos Fecha',
     'Proveedor',
     'Concepto',
-    'Tipo de Movimiento',
-    'Monto',
-    'Categoria',
-    'Subcategoria'
+    'Ingreso',
+    'Egreso',
+    'Categoría',
+    'Subcategoría'
   ],
   rafa: [
     'ID_Transaccion',
@@ -38,9 +44,6 @@ const HEADERS = {
 };
 
 function doGet(e) {
-  // Cuando doGet se ejecuta desde la URL publicada, Google envía el objeto "e".
-  // Si se presiona el botón Ejecutar dentro de Apps Script, "e" llega vacío.
-  // Esta protección evita el error: Cannot read properties of undefined (reading 'parameter').
   const params = (e && e.parameter) ? e.parameter : {};
   const callback = sanitizeCallback_(params.callback || '');
 
@@ -88,7 +91,6 @@ function doGet(e) {
     return respond_({ ok: false, message: error.message || String(error) }, callback);
   }
 }
-
 
 function probarConexion() {
   const response = doGet({
@@ -142,10 +144,11 @@ function readConfig_() {
   const sheet = getSheet_('config');
   const lastRow = Math.max(sheet.getLastRow(), 2);
   const values = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  const tipos = uniqueClean_(values.map(row => row[1]));
 
   return {
     categorias: uniqueClean_(values.map(row => row[0])),
-    tiposMovimiento: uniqueClean_(values.map(row => row[1])),
+    tiposMovimiento: tipos.length ? tipos : ['Ingreso', 'Egreso'],
     subcategorias: uniqueClean_(values.map(row => row[2]))
   };
 }
@@ -170,20 +173,34 @@ function readRows_(entity) {
   const values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
 
   return values
-    .filter(row => String(row[0] || '').trim() !== '')
-    .map(row => entity === 'mile' ? mapMileRow_(row) : mapRafaRow_(row));
+    .map((row, index) => entity === 'mile' ? mapMileRow_(row, index + 2) : mapRafaRow_(row))
+    .filter(row => String(row.id || '').trim() !== '');
 }
 
-function mapMileRow_(row) {
+function mapMileRow_(row, rowNumber) {
+  const fecha = formatDate_(row[0]);
+  const proveedor = String(row[1] || '').trim();
+  const concepto = String(row[2] || '').trim();
+  const ingreso = Number(row[3] || 0);
+  const egreso = Number(row[4] || 0);
+  const categoria = String(row[5] || '').trim();
+  const subcategoria = String(row[6] || '').trim();
+
+  if (!fecha && !proveedor && !concepto && ingreso <= 0 && egreso <= 0) {
+    return { id: '' };
+  }
+
   return {
-    id: String(row[0] || '').trim(),
-    fecha: formatDate_(row[1]),
-    proveedor: String(row[2] || '').trim(),
-    concepto: String(row[3] || '').trim(),
-    tipoMovimiento: String(row[4] || '').trim(),
-    monto: Number(row[5] || 0),
-    categoria: String(row[6] || '').trim(),
-    subcategoria: String(row[7] || '').trim()
+    id: 'TO' + rowNumber,
+    fecha: fecha,
+    proveedor: proveedor,
+    concepto: concepto,
+    ingreso: ingreso,
+    egreso: egreso,
+    tipoMovimiento: ingreso > 0 ? 'Ingreso' : 'Egreso',
+    monto: ingreso > 0 ? ingreso : egreso,
+    categoria: categoria,
+    subcategoria: subcategoria
   };
 }
 
@@ -215,6 +232,33 @@ function parseDate_(text) {
   return new Date(parts[0], parts[1] - 1, parts[2]);
 }
 
+function normalizeText_(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+function officialAmounts_(data) {
+  const ingresoDirecto = Number(data.ingreso || 0);
+  const egresoDirecto = Number(data.egreso || 0);
+  const tipo = normalizeText_(data.tipoMovimiento);
+  const monto = Number(data.monto || 0);
+  const ingreso = ingresoDirecto > 0 ? ingresoDirecto : tipo === 'ingreso' ? monto : 0;
+  const egreso = egresoDirecto > 0 ? egresoDirecto : tipo === 'egreso' ? monto : 0;
+
+  if (ingreso > 0 && egreso > 0) {
+    throw new Error('Un movimiento no puede tener ingreso y egreso al mismo tiempo.');
+  }
+
+  if (ingreso <= 0 && egreso <= 0) {
+    throw new Error('Debes registrar un valor mayor que cero en Ingreso o Egreso.');
+  }
+
+  return { ingreso: ingreso, egreso: egreso };
+}
+
 function createRow_(entity, data) {
   if (entity !== 'mile' && entity !== 'rafa') throw new Error('Entidad no válida.');
   validateRequired_(entity, data);
@@ -224,28 +268,32 @@ function createRow_(entity, data) {
 
   try {
     const sheet = getSheet_(entity);
+    if (entity === 'mile') {
+      const amounts = officialAmounts_(data);
+      const row = [
+        parseDate_(data.fecha),
+        data.proveedor,
+        data.concepto,
+        amounts.ingreso,
+        amounts.egreso,
+        data.categoria || '',
+        data.subcategoria || ''
+      ];
+      sheet.appendRow(row);
+      return mapMileRow_(row, sheet.getLastRow());
+    }
+
     const id = generateId_(entity, sheet);
-    const row = entity === 'mile'
-      ? [
-          id,
-          parseDate_(data.fecha),
-          data.proveedor,
-          data.concepto,
-          data.tipoMovimiento,
-          Number(data.monto),
-          data.categoria,
-          data.subcategoria
-        ]
-      : [
-          id,
-          parseDate_(data.fecha),
-          data.concepto,
-          Number(data.monto),
-          data.categoria
-        ];
+    const row = [
+      id,
+      parseDate_(data.fecha),
+      data.concepto,
+      Number(data.monto),
+      data.categoria
+    ];
 
     sheet.appendRow(row);
-    return entity === 'mile' ? mapMileRow_(row) : mapRafaRow_(row);
+    return mapRafaRow_(row);
   } finally {
     lock.releaseLock();
   }
@@ -261,27 +309,31 @@ function updateRow_(entity, id, data) {
 
   try {
     const sheet = getSheet_(entity);
-    const rowNumber = findRowById_(sheet, id);
+    const rowNumber = findRowById_(entity, sheet, id);
     if (!rowNumber) throw new Error('No se encontró el registro: ' + id);
 
-    const row = entity === 'mile'
-      ? [
-          id,
-          parseDate_(data.fecha),
-          data.proveedor,
-          data.concepto,
-          data.tipoMovimiento,
-          Number(data.monto),
-          data.categoria,
-          data.subcategoria
-        ]
-      : [
-          id,
-          parseDate_(data.fecha),
-          data.concepto,
-          Number(data.monto),
-          data.categoria
-        ];
+    if (entity === 'mile') {
+      const amounts = officialAmounts_(data);
+      const row = [
+        parseDate_(data.fecha),
+        data.proveedor,
+        data.concepto,
+        amounts.ingreso,
+        amounts.egreso,
+        data.categoria || '',
+        data.subcategoria || ''
+      ];
+      sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
+      return;
+    }
+
+    const row = [
+      id,
+      parseDate_(data.fecha),
+      data.concepto,
+      Number(data.monto),
+      data.categoria
+    ];
 
     sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
   } finally {
@@ -298,7 +350,7 @@ function deleteRow_(entity, id) {
 
   try {
     const sheet = getSheet_(entity);
-    const rowNumber = findRowById_(sheet, id);
+    const rowNumber = findRowById_(entity, sheet, id);
     if (!rowNumber) throw new Error('No se encontró el registro: ' + id);
     sheet.deleteRow(rowNumber);
   } finally {
@@ -308,7 +360,7 @@ function deleteRow_(entity, id) {
 
 function validateRequired_(entity, data) {
   const fields = entity === 'mile'
-    ? ['fecha', 'proveedor', 'concepto', 'tipoMovimiento', 'monto', 'categoria', 'subcategoria']
+    ? ['fecha', 'proveedor', 'concepto']
     : ['fecha', 'concepto', 'monto', 'categoria'];
 
   const missing = fields.filter(field => data[field] === undefined || data[field] === null || String(data[field]).trim() === '');
@@ -316,12 +368,25 @@ function validateRequired_(entity, data) {
     throw new Error('Faltan campos obligatorios: ' + missing.join(', '));
   }
 
+  if (entity === 'mile') {
+    officialAmounts_(data);
+    return;
+  }
+
   if (Number(data.monto) <= 0) {
     throw new Error('El monto debe ser mayor que cero.');
   }
 }
 
-function findRowById_(sheet, id) {
+function findRowById_(entity, sheet, id) {
+  if (entity === 'mile') {
+    const match = String(id || '').match(/^TO(\d+)$/);
+    if (!match) return 0;
+    const rowNumber = Number(match[1]);
+    if (rowNumber < 2 || rowNumber > sheet.getLastRow()) return 0;
+    return rowNumber;
+  }
+
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return 0;
   const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues().flat();
@@ -333,7 +398,7 @@ function findRowById_(sheet, id) {
 }
 
 function generateId_(entity, sheet) {
-  const prefix = entity === 'mile' ? 'T' : 'R';
+  const prefix = entity === 'mile' ? 'TO' : 'R';
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return prefix + '001';
 
