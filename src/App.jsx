@@ -30,7 +30,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 2G';
+const APP_VERSION = 'Fase 2I';
 
 function reloadApp() {
   const url = new URL(window.location.href);
@@ -152,7 +152,7 @@ function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefr
 }
 
 const DASHBOARD_TABLE_COLUMNS = [
-  { key: 'fecha', label: 'Gastos Fecha' },
+  { key: 'fecha', label: 'Fecha' },
   { key: 'proveedor', label: 'Proveedor' },
   { key: 'concepto', label: 'Concepto' },
   { key: 'ingreso', label: 'Ingreso' },
@@ -174,22 +174,29 @@ function compareOfficialRowsAsc(a, b) {
   return String(a.id || '').localeCompare(String(b.id || ''));
 }
 
+function formatShortDate(fecha) {
+  const key = toDateKey(fecha);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(key)) {
+    const [year, month, day] = key.split('-');
+    return `${day}/${month}/${year.slice(-2)}`;
+  }
+  return fecha || '-';
+}
+
+function getDashboardCellClass(columnKey) {
+  if (columnKey === 'fecha') return 'date-cell';
+  if (columnKey === 'ingreso') return 'income-cell amount-cell';
+  if (columnKey === 'egreso') return 'expense-cell amount-cell';
+  if (columnKey === 'saldoAcumulado') return 'balance-cell amount-cell';
+  return '';
+}
+
 function Dashboard({ mile, rafa, month, setMonth }) {
   const initialRange = getMonthBounds(month);
   const [rangeOpen, setRangeOpen] = useState(false);
   const [rangeFrom, setRangeFrom] = useState(initialRange.from);
   const [rangeTo, setRangeTo] = useState(initialRange.to);
   const [visibleColumns, setVisibleColumns] = useState(DEFAULT_DASHBOARD_COLUMNS);
-
-  const monthRows = mile.filter((row) => getMonthKey(row.fecha) === month);
-  const totalIngresos = sumBy(monthRows, getIngreso);
-  const totalEgresos = sumBy(monthRows, getEgreso);
-  const saldoMes = totalIngresos - totalEgresos;
-  const saldoAcumulado = mile.reduce((total, row) => total + getIngreso(row) - getEgreso(row), 0);
-  const rafaMes = sumBy(
-    rafa.filter((row) => getMonthKey(row.fecha) === month),
-    (row) => row.monto
-  );
 
   const rowsWithBalance = useMemo(() => {
     let runningBalance = 0;
@@ -203,6 +210,16 @@ function Dashboard({ mile, rafa, month, setMonth }) {
         };
       });
   }, [mile]);
+
+  const monthRows = rowsWithBalance.filter((row) => getMonthKey(row.fecha) === month);
+  const totalIngresos = sumBy(monthRows, getIngreso);
+  const totalEgresos = sumBy(monthRows, getEgreso);
+  const saldoMes = monthRows.length > 0 ? monthRows[monthRows.length - 1].saldoAcumulado : 0;
+  const saldoAcumulado = rowsWithBalance.length > 0 ? rowsWithBalance[rowsWithBalance.length - 1].saldoAcumulado : 0;
+  const rafaMes = sumBy(
+    rafa.filter((row) => getMonthKey(row.fecha) === month),
+    (row) => row.monto
+  );
 
   const rangeRows = useMemo(() => rowsWithBalance
     .filter((row) => isDateInRange(row.fecha, rangeFrom, rangeTo)),
@@ -245,7 +262,7 @@ function Dashboard({ mile, rafa, month, setMonth }) {
   }
 
   function renderDashboardCell(row, columnKey) {
-    if (columnKey === 'fecha') return row.fecha || '-';
+    if (columnKey === 'fecha') return formatShortDate(row.fecha);
     if (columnKey === 'proveedor') return row.proveedor || '-';
     if (columnKey === 'concepto') return row.concepto || '-';
     if (columnKey === 'ingreso') return getIngreso(row) > 0 ? money(getIngreso(row)) : '-';
@@ -272,7 +289,7 @@ function Dashboard({ mile, rafa, month, setMonth }) {
       <div className="cards-grid">
         <Card title="Ingresos del mes" value={money(totalIngresos)} />
         <Card title="Egresos del mes" value={money(totalEgresos)} />
-        <Card title="Saldo del mes" value={money(saldoMes)} />
+        <Card title="Saldo del mes" value={money(saldoMes)} detail="Acumulado al último movimiento del mes" />
         <Card title="Saldo acumulado" value={money(saldoAcumulado)} detail="Ingresos - egresos registrados" />
         <Card title="Gastos Rafa del mes" value={money(rafaMes)} detail="Módulo secundario" />
       </div>
@@ -350,7 +367,7 @@ function Dashboard({ mile, rafa, month, setMonth }) {
                 {DASHBOARD_TABLE_COLUMNS.filter((column) => visibleColumns.includes(column.key)).map((column) => (
                   <td
                     key={column.key}
-                    className={column.key === 'ingreso' ? 'income-cell' : column.key === 'egreso' ? 'expense-cell' : column.key === 'saldoAcumulado' ? 'balance-cell' : ''}
+                    className={getDashboardCellClass(column.key)}
                   >
                     {renderDashboardCell(row, column.key)}
                   </td>
@@ -854,7 +871,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 2G</small>
+            <small>Milena · Fase 2I</small>
           </div>
         </div>
         <nav>
@@ -878,7 +895,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 2G</span>
+          <span className="version" title={APP_VERSION}>Fase 2I</span>
         </header>
 
         <StatusBar

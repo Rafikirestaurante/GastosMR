@@ -1241,3 +1241,46 @@ select {
     z-index: 3;
   }
 }
+
+/* Fase 2I: columna Fecha compacta en la tabla del Dashboard */
+.dashboard-responsive-table th:first-child,
+.dashboard-responsive-table td:first-child,
+.dashboard-responsive-table .date-cell {
+  width: 74px;
+  min-width: 74px;
+  max-width: 74px;
+}
+
+.dashboard-responsive-table .date-cell {
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.dashboard-responsive-table .amount-cell {
+  min-width: 110px;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .dashboard-responsive-table table {
+    min-width: 690px;
+  }
+
+  .dashboard-responsive-table th:first-child,
+  .dashboard-responsive-table td:first-child,
+  .dashboard-responsive-table .date-cell {
+    width: 66px;
+    min-width: 66px;
+    max-width: 66px;
+  }
+
+  .dashboard-responsive-table th:first-child,
+  .dashboard-responsive-table td:first-child {
+    padding-left: 0.45rem;
+    padding-right: 0.45rem;
+  }
+
+  .dashboard-responsive-table .amount-cell {
+    min-width: 96px;
+  }
+}
