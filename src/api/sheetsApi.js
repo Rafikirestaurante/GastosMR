@@ -1,4 +1,4 @@
-import { normalizeText, todayISO } from '../utils/format.js';
+import { normalizeText, parseAmount, todayISO } from '../utils/format.js';
 
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || '';
 const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || '';
@@ -7,10 +7,10 @@ const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v2-tabla-oficial';
 const PROXY_URL = '/api/sheets';
 
 function normalizeOfficialRow(data = {}) {
-  const ingreso = Number(data.ingreso || 0);
-  const egreso = Number(data.egreso || 0);
+  const ingreso = parseAmount(data.ingreso);
+  const egreso = parseAmount(data.egreso);
   const type = normalizeText(data.tipoMovimiento);
-  const amount = Number(data.monto || 0);
+  const amount = parseAmount(data.monto);
   const finalIngreso = ingreso > 0 ? ingreso : type === 'ingreso' ? amount : 0;
   const finalEgreso = egreso > 0 ? egreso : type === 'egreso' ? amount : 0;
 

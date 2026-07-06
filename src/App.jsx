@@ -5,6 +5,7 @@ import {
   getMonthKey,
   money,
   normalizeText,
+  parseAmount,
   sumBy,
   todayISO
 } from './utils/format.js';
@@ -26,7 +27,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 2E';
+const APP_VERSION = 'Fase 2F';
 
 function reloadApp() {
   const url = new URL(window.location.href);
@@ -44,11 +45,11 @@ const navItems = [
 
 
 function getIngreso(row) {
-  return Number(row.ingreso || 0);
+  return parseAmount(row.ingreso);
 }
 
 function getEgreso(row) {
-  return Number(row.egreso || 0);
+  return parseAmount(row.egreso);
 }
 
 function getMovementType(row) {
@@ -60,12 +61,12 @@ function getMovementType(row) {
 function getMovementAmount(row) {
   if (getIngreso(row) > 0) return getIngreso(row);
   if (getEgreso(row) > 0) return getEgreso(row);
-  return Number(row.monto || 0);
+  return parseAmount(row.monto);
 }
 
 function toOfficialPayload(data) {
   const type = normalizeText(data.tipoMovimiento);
-  const amount = Number(data.monto || 0);
+  const amount = parseAmount(data.monto);
   return {
     fecha: data.fecha,
     proveedor: data.proveedor,
@@ -87,7 +88,7 @@ function requireFields(data, fields) {
   if (missing.length > 0) {
     return `Faltan campos obligatorios: ${missing.join(', ')}.`;
   }
-  if (Number(data.monto) <= 0) return 'El monto debe ser mayor que cero.';
+  if (parseAmount(data.monto) <= 0) return 'El monto debe ser mayor que cero.';
   return '';
 }
 
@@ -258,7 +259,7 @@ function MileForm({ config, initialData, editingId, onCancel, onSubmit, saving }
       setLocalError(error);
       return;
     }
-    onSubmit(toOfficialPayload({ ...form, monto: Number(form.monto) }));
+    onSubmit(toOfficialPayload({ ...form, monto: parseAmount(form.monto) }));
   }
 
   return (
@@ -454,7 +455,7 @@ function RafaModule({ rows, config, onCreate, onDelete, saving }) {
       setError(validation);
       return;
     }
-    onCreate({ ...form, monto: Number(form.monto) });
+    onCreate({ ...form, monto: parseAmount(form.monto) });
     setForm(emptyRafa);
     setError('');
   }
@@ -684,7 +685,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 2E</small>
+            <small>Milena · Fase 2F</small>
           </div>
         </div>
         <nav>
@@ -708,7 +709,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 2E</span>
+          <span className="version" title={APP_VERSION}>Fase 2F</span>
         </header>
 
         <StatusBar

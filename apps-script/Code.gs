@@ -1,5 +1,5 @@
 /************************************************************
- * Control Gastos Milena - Fase 2E
+ * Control Gastos Milena - Fase 2F
  * Backend Google Apps Script para Google Sheets.
  *
  * Hoja principal activa: "Tabla Oficial".
@@ -7,6 +7,9 @@
  *
  * Columnas esperadas en Tabla Oficial:
  * Gastos Fecha | Proveedor | Concepto | Ingreso | Egreso | Categoría | Subcategoría
+ *
+ * Fase 2F: lectura blindada para dashboard. Soporta valores como
+ * $ 1.200.000, 1,200,000 o números con formato de moneda en Sheets.
  *
  * Instrucciones:
  * 1. Pega este archivo en Apps Script.
@@ -169,22 +172,67 @@ function readRows_(entity) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
+  if (entity === 'mile') {
+    const width = Math.max(sheet.getLastColumn(), HEADERS.mile.length);
+    const headerRow = sheet.getRange(1, 1, 1, width).getDisplayValues()[0];
+    const indexes = buildOfficialIndex_(headerRow);
+    const values = sheet.getRange(2, 1, lastRow - 1, width).getValues();
+    const displayValues = sheet.getRange(2, 1, lastRow - 1, width).getDisplayValues();
+
+    return values
+      .map((row, index) => mapMileRow_(row, index + 2, displayValues[index], indexes))
+      .filter(row => String(row.id || '').trim() !== '');
+  }
+
   const headers = HEADERS[entity];
   const values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  const displayValues = sheet.getRange(2, 1, lastRow - 1, headers.length).getDisplayValues();
 
   return values
-    .map((row, index) => entity === 'mile' ? mapMileRow_(row, index + 2) : mapRafaRow_(row))
+    .map((row, index) => mapRafaRow_(row, displayValues[index]))
     .filter(row => String(row.id || '').trim() !== '');
 }
 
-function mapMileRow_(row, rowNumber) {
-  const fecha = formatDate_(row[0]);
-  const proveedor = String(row[1] || '').trim();
-  const concepto = String(row[2] || '').trim();
-  const ingreso = Number(row[3] || 0);
-  const egreso = Number(row[4] || 0);
-  const categoria = String(row[5] || '').trim();
-  const subcategoria = String(row[6] || '').trim();
+function buildOfficialIndex_(headers) {
+  return {
+    fecha: findHeaderIndex_(headers, ['gastosfecha', 'fecha'], 0),
+    proveedor: findHeaderIndex_(headers, ['proveedor'], 1),
+    concepto: findHeaderIndex_(headers, ['concepto'], 2),
+    ingreso: findHeaderIndex_(headers, ['ingreso', 'ingresos'], 3),
+    egreso: findHeaderIndex_(headers, ['egreso', 'egresos', 'gasto', 'gastos'], 4),
+    categoria: findHeaderIndex_(headers, ['categoria'], 5),
+    subcategoria: findHeaderIndex_(headers, ['subcategoria'], 6)
+  };
+}
+
+function headerKey_(value) {
+  return normalizeText_(value)
+    .replace(/\s+/g, '')
+    .replace(/_/g, '');
+}
+
+function findHeaderIndex_(headers, aliases, fallback) {
+  const normalizedAliases = aliases.map(alias => headerKey_(alias));
+  for (let i = 0; i < headers.length; i++) {
+    if (normalizedAliases.indexOf(headerKey_(headers[i])) !== -1) return i;
+  }
+  return fallback;
+}
+
+function cell_(row, index) {
+  return index >= 0 && index < row.length ? row[index] : '';
+}
+
+function mapMileRow_(row, rowNumber, displayRow, indexes) {
+  const display = displayRow || [];
+  const idx = indexes || buildOfficialIndex_(HEADERS.mile);
+  const fecha = formatDate_(cell_(row, idx.fecha), cell_(display, idx.fecha));
+  const proveedor = String(cell_(row, idx.proveedor) || cell_(display, idx.proveedor) || '').trim();
+  const concepto = String(cell_(row, idx.concepto) || cell_(display, idx.concepto) || '').trim();
+  const ingreso = parseAmount_(cell_(row, idx.ingreso), cell_(display, idx.ingreso));
+  const egreso = parseAmount_(cell_(row, idx.egreso), cell_(display, idx.egreso));
+  const categoria = String(cell_(row, idx.categoria) || cell_(display, idx.categoria) || '').trim();
+  const subcategoria = String(cell_(row, idx.subcategoria) || cell_(display, idx.subcategoria) || '').trim();
 
   if (!fecha && !proveedor && !concepto && ingreso <= 0 && egreso <= 0) {
     return { id: '' };
@@ -204,32 +252,48 @@ function mapMileRow_(row, rowNumber) {
   };
 }
 
-function mapRafaRow_(row) {
+function mapRafaRow_(row, displayRow) {
+  const display = displayRow || [];
   return {
-    id: String(row[0] || '').trim(),
-    fecha: formatDate_(row[1]),
-    concepto: String(row[2] || '').trim(),
-    monto: Number(row[3] || 0),
-    categoria: String(row[4] || '').trim()
+    id: String(row[0] || display[0] || '').trim(),
+    fecha: formatDate_(row[1], display[1]),
+    concepto: String(row[2] || display[2] || '').trim(),
+    monto: parseAmount_(row[3], display[3]),
+    categoria: String(row[4] || display[4] || '').trim()
   };
 }
 
-function formatDate_(value) {
+function formatDate_(value, displayValue) {
   if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)) {
     return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   }
-  const text = String(value || '').trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+
+  let text = String(value || displayValue || '').trim();
+  if (!text) return '';
+
+  const iso = text.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+  if (iso) {
+    return iso[1] + '-' + String(iso[2]).padStart(2, '0') + '-' + String(iso[3]).padStart(2, '0');
+  }
+
+  const local = text.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
+  if (local) {
+    return local[3] + '-' + String(local[2]).padStart(2, '0') + '-' + String(local[1]).padStart(2, '0');
+  }
+
   return text;
 }
 
 function parseDate_(text) {
   const value = String(text || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    throw new Error('La fecha debe tener formato YYYY-MM-DD.');
-  }
-  const parts = value.split('-').map(Number);
-  return new Date(parts[0], parts[1] - 1, parts[2]);
+
+  let match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+
+  match = value.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (match) return new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+
+  throw new Error('La fecha debe tener formato YYYY-MM-DD.');
 }
 
 function normalizeText_(value) {
@@ -240,11 +304,49 @@ function normalizeText_(value) {
     .trim();
 }
 
+function parseAmount_(value, displayValue) {
+  if (typeof value === 'number' && isFinite(value)) return value;
+
+  let raw = String(value || displayValue || '').trim();
+  if (!raw) return 0;
+
+  let cleaned = raw
+    .replace(/[^0-9,.-]/g, '')
+    .replace(/(?!^)-/g, '');
+
+  if (!cleaned || cleaned === '-' || cleaned === '.' || cleaned === ',') return 0;
+
+  const lastComma = cleaned.lastIndexOf(',');
+  const lastDot = cleaned.lastIndexOf('.');
+
+  if (lastComma > -1 && lastDot > -1) {
+    if (lastComma > lastDot) {
+      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+    } else {
+      cleaned = cleaned.replace(/,/g, '');
+    }
+  } else if (lastComma > -1) {
+    const decimals = cleaned.length - lastComma - 1;
+    cleaned = decimals > 0 && decimals <= 2
+      ? cleaned.replace(',', '.')
+      : cleaned.replace(/,/g, '');
+  } else if (lastDot > -1) {
+    const parts = cleaned.split('.');
+    const decimals = cleaned.length - lastDot - 1;
+    cleaned = parts.length > 2 || decimals === 3
+      ? cleaned.replace(/\./g, '')
+      : cleaned;
+  }
+
+  const number = Number(cleaned);
+  return isFinite(number) ? number : 0;
+}
+
 function officialAmounts_(data) {
-  const ingresoDirecto = Number(data.ingreso || 0);
-  const egresoDirecto = Number(data.egreso || 0);
+  const ingresoDirecto = parseAmount_(data.ingreso);
+  const egresoDirecto = parseAmount_(data.egreso);
   const tipo = normalizeText_(data.tipoMovimiento);
-  const monto = Number(data.monto || 0);
+  const monto = parseAmount_(data.monto);
   const ingreso = ingresoDirecto > 0 ? ingresoDirecto : tipo === 'ingreso' ? monto : 0;
   const egreso = egresoDirecto > 0 ? egresoDirecto : tipo === 'egreso' ? monto : 0;
 
@@ -288,7 +390,7 @@ function createRow_(entity, data) {
       id,
       parseDate_(data.fecha),
       data.concepto,
-      Number(data.monto),
+      parseAmount_(data.monto),
       data.categoria
     ];
 
@@ -331,7 +433,7 @@ function updateRow_(entity, id, data) {
       id,
       parseDate_(data.fecha),
       data.concepto,
-      Number(data.monto),
+      parseAmount_(data.monto),
       data.categoria
     ];
 
@@ -373,7 +475,7 @@ function validateRequired_(entity, data) {
     return;
   }
 
-  if (Number(data.monto) <= 0) {
+  if (parseAmount_(data.monto) <= 0) {
     throw new Error('El monto debe ser mayor que cero.');
   }
 }

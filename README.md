@@ -1,4 +1,4 @@
-# Control Gastos Milena — Fase 2E
+# Control Gastos Milena — Fase 2F
 
 Aplicación web sencilla para controlar los gastos de Milena usando:
 
@@ -35,6 +35,20 @@ Esta tabla es secundaria para gastos ocasionales de Rafa.
 |---|---|---|
 
 Esta pestaña alimenta los desplegables de la app.
+
+
+## Corrección Fase 2F - Dashboard y saldos
+
+Se corrigió la lectura de **Ingreso** y **Egreso** para que el dashboard pueda sumar correctamente aunque Google Sheets muestre valores como moneda colombiana, con puntos, comas o símbolo `$`.
+
+El cálculo queda así:
+
+```txt
+Saldo del mes = ingresos del mes - egresos del mes
+Saldo acumulado = todos los ingresos registrados - todos los egresos registrados
+```
+
+También se hizo más flexible la lectura de fechas para que el filtro mensual funcione con fechas guardadas como `YYYY-MM-DD` o `DD/MM/YYYY`.
 
 ## 2. Configurar Apps Script
 
@@ -96,7 +110,7 @@ http://localhost:5173
 ```bash
 git init
 git add .
-git commit -m "Fase 2E tabla oficial control gastos Milena"
+git commit -m "Fase 2F tabla oficial control gastos Milena"
 git branch -M main
 git remote add origin URL_DE_TU_REPOSITORIO
 git push -u origin main
@@ -227,7 +241,7 @@ Quién tiene acceso: Cualquier persona
 ```
 
 
-## Fase 2E - Tabla Oficial como base principal
+## Fase 2F - Tabla Oficial como base principal
 
 Esta versión migra la base principal desde **Gastos Mile** hacia **Tabla Oficial**.
 
