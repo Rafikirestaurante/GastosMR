@@ -68,28 +68,55 @@ export function movementSign(tipoMovimiento) {
   return normalizeText(tipoMovimiento) === 'ingreso' ? 1 : -1;
 }
 
-export function getMonthKey(fecha) {
+export function toDateKey(fecha) {
   const text = String(fecha || '').trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 7);
+  if (!text) return '';
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
 
   const slashMatch = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
   if (slashMatch) {
     const day = slashMatch[1].padStart(2, '0');
     const month = slashMatch[2].padStart(2, '0');
     const year = slashMatch[3];
-    return `${year}-${month}`;
+    return `${year}-${month}-${day}`;
   }
 
   const parsed = new Date(text);
   if (!Number.isNaN(parsed.getTime())) {
     const year = parsed.getFullYear();
     const month = String(parsed.getMonth() + 1).padStart(2, '0');
-    return `${year}-${month}`;
+    const day = String(parsed.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
-  return text.slice(0, 7);
+  return text.slice(0, 10);
 }
 
+export function isDateInRange(fecha, from, to) {
+  const key = toDateKey(fecha);
+  if (!key) return false;
+  if (from && key < from) return false;
+  if (to && key > to) return false;
+  return true;
+}
+
+export function getMonthBounds(monthKey) {
+  const key = /^\d{4}-\d{2}$/.test(String(monthKey || '')) ? monthKey : currentMonthKey();
+  const [yearText, monthText] = key.split('-');
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const lastDay = new Date(year, month, 0).getDate();
+  return {
+    from: `${key}-01`,
+    to: `${key}-${String(lastDay).padStart(2, '0')}`
+  };
+}
+
+export function getMonthKey(fecha) {
+  const key = toDateKey(fecha);
+  return key ? key.slice(0, 7) : '';
+}
 export function sumBy(items, getter) {
   return items.reduce((total, item) => total + parseAmount(getter(item)), 0);
 }

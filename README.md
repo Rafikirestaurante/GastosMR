@@ -1,4 +1,13 @@
-# Control Gastos Milena — Fase 2F
+# Control Gastos Milena — Fase 2G
+
+## Fase 2G - Dashboard con rango, saldo acumulado y columnas configurables
+
+En esta fase se agregó al Dashboard una sección para consultar la **Tabla Oficial** por rango de fechas. La tabla incluye una nueva columna **Saldo acumulado**, calculada como el acumulado histórico de `Ingreso - Egreso` hasta cada movimiento.
+
+También se agregó un panel para **ocultar y mostrar columnas** de la tabla sin afectar la información guardada en Google Sheets. En celular, esta vista se presenta como tarjetas; en PC, como tabla tradicional.
+
+Esta fase no cambia la estructura de Google Sheets ni requiere modificar Apps Script si ya se instaló correctamente la Fase 2F.
+
 
 Aplicación web sencilla para controlar los gastos de Milena usando:
 
@@ -110,7 +119,7 @@ http://localhost:5173
 ```bash
 git init
 git add .
-git commit -m "Fase 2F tabla oficial control gastos Milena"
+git commit -m "Fase 2G dashboard rango saldo acumulado"
 git branch -M main
 git remote add origin URL_DE_TU_REPOSITORIO
 git push -u origin main

@@ -2,12 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { getCachedRemoteSnapshot, sheetsRequest } from './api/sheetsApi.js';
 import {
   currentMonthKey,
+  getMonthBounds,
   getMonthKey,
+  isDateInRange,
   money,
   normalizeText,
   parseAmount,
   sumBy,
-  todayISO
+  todayISO,
+  toDateKey
 } from './utils/format.js';
 
 const emptyMile = {
@@ -27,7 +30,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 2F';
+const APP_VERSION = 'Fase 2G';
 
 function reloadApp() {
   const url = new URL(window.location.href);
@@ -148,7 +151,36 @@ function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefr
   );
 }
 
+const DASHBOARD_TABLE_COLUMNS = [
+  { key: 'fecha', label: 'Gastos Fecha' },
+  { key: 'proveedor', label: 'Proveedor' },
+  { key: 'concepto', label: 'Concepto' },
+  { key: 'ingreso', label: 'Ingreso' },
+  { key: 'egreso', label: 'Egreso' },
+  { key: 'categoria', label: 'Categoría' },
+  { key: 'subcategoria', label: 'Subcategoría' },
+  { key: 'saldoAcumulado', label: 'Saldo acumulado' }
+];
+
+const DEFAULT_DASHBOARD_COLUMNS = DASHBOARD_TABLE_COLUMNS.map((column) => column.key);
+
+function getRowDateKey(row) {
+  return toDateKey(row.fecha);
+}
+
+function compareOfficialRowsAsc(a, b) {
+  const dateCompare = getRowDateKey(a).localeCompare(getRowDateKey(b));
+  if (dateCompare !== 0) return dateCompare;
+  return String(a.id || '').localeCompare(String(b.id || ''));
+}
+
 function Dashboard({ mile, rafa, month, setMonth }) {
+  const initialRange = getMonthBounds(month);
+  const [rangeOpen, setRangeOpen] = useState(false);
+  const [rangeFrom, setRangeFrom] = useState(initialRange.from);
+  const [rangeTo, setRangeTo] = useState(initialRange.to);
+  const [visibleColumns, setVisibleColumns] = useState(DEFAULT_DASHBOARD_COLUMNS);
+
   const monthRows = mile.filter((row) => getMonthKey(row.fecha) === month);
   const totalIngresos = sumBy(monthRows, getIngreso);
   const totalEgresos = sumBy(monthRows, getEgreso);
@@ -158,6 +190,27 @@ function Dashboard({ mile, rafa, month, setMonth }) {
     rafa.filter((row) => getMonthKey(row.fecha) === month),
     (row) => row.monto
   );
+
+  const rowsWithBalance = useMemo(() => {
+    let runningBalance = 0;
+    return [...mile]
+      .sort(compareOfficialRowsAsc)
+      .map((row) => {
+        runningBalance += getIngreso(row) - getEgreso(row);
+        return {
+          ...row,
+          saldoAcumulado: runningBalance
+        };
+      });
+  }, [mile]);
+
+  const rangeRows = useMemo(() => rowsWithBalance
+    .filter((row) => isDateInRange(row.fecha, rangeFrom, rangeTo)),
+  [rowsWithBalance, rangeFrom, rangeTo]);
+
+  const totalRangoIngresos = sumBy(rangeRows, getIngreso);
+  const totalRangoEgresos = sumBy(rangeRows, getEgreso);
+  const saldoRango = totalRangoIngresos - totalRangoEgresos;
 
   const byCategory = Object.entries(
     monthRows.reduce((acc, row) => {
@@ -171,8 +224,37 @@ function Dashboard({ mile, rafa, month, setMonth }) {
     .slice(0, 8);
 
   const lastRows = [...mile]
-    .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))
+    .sort((a, b) => getRowDateKey(b).localeCompare(getRowDateKey(a)) || String(b.id).localeCompare(String(a.id)))
     .slice(0, 6);
+
+  function useSelectedMonthAsRange() {
+    const nextRange = getMonthBounds(month);
+    setRangeFrom(nextRange.from);
+    setRangeTo(nextRange.to);
+    setRangeOpen(true);
+  }
+
+  function toggleColumn(columnKey) {
+    setVisibleColumns((current) => {
+      if (current.includes(columnKey)) {
+        if (current.length === 1) return current;
+        return current.filter((key) => key !== columnKey);
+      }
+      return [...current, columnKey];
+    });
+  }
+
+  function renderDashboardCell(row, columnKey) {
+    if (columnKey === 'fecha') return row.fecha || '-';
+    if (columnKey === 'proveedor') return row.proveedor || '-';
+    if (columnKey === 'concepto') return row.concepto || '-';
+    if (columnKey === 'ingreso') return getIngreso(row) > 0 ? money(getIngreso(row)) : '-';
+    if (columnKey === 'egreso') return getEgreso(row) > 0 ? money(getEgreso(row)) : '-';
+    if (columnKey === 'categoria') return row.categoria || '-';
+    if (columnKey === 'subcategoria') return row.subcategoria || '-';
+    if (columnKey === 'saldoAcumulado') return money(row.saldoAcumulado);
+    return '-';
+  }
 
   return (
     <section className="panel">
@@ -195,7 +277,116 @@ function Dashboard({ mile, rafa, month, setMonth }) {
         <Card title="Gastos Rafa del mes" value={money(rafaMes)} detail="Módulo secundario" />
       </div>
 
-      <div className="two-col">
+      <div className="dashboard-tools">
+        <div>
+          <p className="eyebrow">Tabla Oficial por rango</p>
+          <h3>Movimientos con saldo acumulado</h3>
+          <p className="muted range-caption">
+            Rango actual: {rangeFrom || 'sin fecha inicial'} a {rangeTo || 'sin fecha final'} · {rangeRows.length} registros
+          </p>
+        </div>
+        <div className="dashboard-tool-actions">
+          <button className="secondary" type="button" onClick={() => setRangeOpen((current) => !current)}>
+            {rangeOpen ? 'Ocultar rango' : 'Seleccionar rango de fechas'}
+          </button>
+          <button className="secondary" type="button" onClick={useSelectedMonthAsRange}>
+            Usar mes seleccionado
+          </button>
+        </div>
+      </div>
+
+      {rangeOpen ? (
+        <div className="date-range-panel">
+          <label>
+            Desde
+            <input type="date" value={rangeFrom} onChange={(event) => setRangeFrom(event.target.value)} />
+          </label>
+          <label>
+            Hasta
+            <input type="date" value={rangeTo} onChange={(event) => setRangeTo(event.target.value)} />
+          </label>
+          <button className="secondary" type="button" onClick={() => { setRangeFrom(''); setRangeTo(''); }}>
+            Ver todo
+          </button>
+        </div>
+      ) : null}
+
+      <div className="range-summary-grid">
+        <Card title="Ingresos del rango" value={money(totalRangoIngresos)} />
+        <Card title="Egresos del rango" value={money(totalRangoEgresos)} />
+        <Card title="Saldo del rango" value={money(saldoRango)} />
+      </div>
+
+      <div className="column-toggle-panel">
+        <strong>Mostrar columnas</strong>
+        <div className="column-toggle-list">
+          {DASHBOARD_TABLE_COLUMNS.map((column) => (
+            <label className="checkbox-chip" key={column.key}>
+              <input
+                type="checkbox"
+                checked={visibleColumns.includes(column.key)}
+                onChange={() => toggleColumn(column.key)}
+              />
+              <span>{column.label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="mobile-records dashboard-mobile-records" aria-label="Tabla Oficial filtrada en tarjetas">
+        {rangeRows.map((row) => (
+          <article className="mobile-record" key={`dashboard-mobile-${row.id}`}>
+            <div className="mobile-record-head">
+              <div>
+                <strong>{row.concepto || 'Movimiento'}</strong>
+                <span>{row.fecha} · {row.proveedor || 'Sin proveedor'}</span>
+              </div>
+              <em className={getIngreso(row) > 0 ? 'income' : 'expense'}>
+                {getIngreso(row) > 0 ? '+' : '-'}{money(getMovementAmount(row))}
+              </em>
+            </div>
+            <div className="mobile-record-meta">
+              {visibleColumns.map((columnKey) => {
+                const column = DASHBOARD_TABLE_COLUMNS.find((item) => item.key === columnKey);
+                if (!column) return null;
+                return <span key={columnKey}><b>{column.label}:</b> {renderDashboardCell(row, columnKey)}</span>;
+              })}
+            </div>
+          </article>
+        ))}
+        {rangeRows.length === 0 ? <div className="empty mobile-empty">No hay registros en este rango.</div> : null}
+      </div>
+
+      <div className="table-wrap desktop-table dashboard-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              {DASHBOARD_TABLE_COLUMNS.filter((column) => visibleColumns.includes(column.key)).map((column) => (
+                <th key={column.key}>{column.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rangeRows.map((row) => (
+              <tr key={`dashboard-${row.id}`}>
+                {DASHBOARD_TABLE_COLUMNS.filter((column) => visibleColumns.includes(column.key)).map((column) => (
+                  <td
+                    key={column.key}
+                    className={column.key === 'ingreso' ? 'income-cell' : column.key === 'egreso' ? 'expense-cell' : column.key === 'saldoAcumulado' ? 'balance-cell' : ''}
+                  >
+                    {renderDashboardCell(row, column.key)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {rangeRows.length === 0 ? (
+              <tr><td colSpan={visibleColumns.length} className="empty">No hay registros en este rango.</td></tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="two-col dashboard-bottom-panels">
         <article className="subpanel">
           <h3>Gastos por categoría</h3>
           {byCategory.length === 0 ? (
@@ -219,7 +410,7 @@ function Dashboard({ mile, rafa, month, setMonth }) {
               <div className="mini-row" key={row.id}>
                 <div>
                   <strong>{row.concepto}</strong>
-                  <span>{row.fecha} · {row.categoria}</span>
+                  <span>{row.fecha} · {row.categoria || 'Sin categoría'}</span>
                 </div>
                 <em className={getIngreso(row) > 0 ? 'income' : 'expense'}>
                   {getIngreso(row) > 0 ? '+' : '-'}{money(getMovementAmount(row))}
@@ -339,11 +530,11 @@ function History({ rows, config, onEdit, onDelete }) {
           .some((value) => normalizeText(value).includes(q));
         const matchesType = !type || getMovementType(row) === type;
         const matchesCategory = !category || row.categoria === category;
-        const matchesFrom = !from || row.fecha >= from;
-        const matchesTo = !to || row.fecha <= to;
+        const matchesFrom = !from || isDateInRange(row.fecha, from, '');
+        const matchesTo = !to || isDateInRange(row.fecha, '', to);
         return matchesQuery && matchesType && matchesCategory && matchesFrom && matchesTo;
       })
-      .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)) || String(b.id).localeCompare(String(a.id)));
+      .sort((a, b) => getRowDateKey(b).localeCompare(getRowDateKey(a)) || String(b.id).localeCompare(String(a.id)));
   }, [rows, query, type, category, from, to]);
 
   return (
@@ -685,7 +876,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 2F</small>
+            <small>Milena · Fase 2G</small>
           </div>
         </div>
         <nav>
@@ -709,7 +900,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 2F</span>
+          <span className="version" title={APP_VERSION}>Fase 2G</span>
         </header>
 
         <StatusBar

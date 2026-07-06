@@ -1,5 +1,5 @@
 /************************************************************
- * Control Gastos Milena - Fase 2F
+ * Control Gastos Milena - Fase 2G
  * Backend Google Apps Script para Google Sheets.
  *
  * Hoja principal activa: "Tabla Oficial".
@@ -8,7 +8,7 @@
  * Columnas esperadas en Tabla Oficial:
  * Gastos Fecha | Proveedor | Concepto | Ingreso | Egreso | Categoría | Subcategoría
  *
- * Fase 2F: lectura blindada para dashboard. Soporta valores como
+ * Fase 2F/2G: lectura blindada para dashboard. Soporta valores como
  * $ 1.200.000, 1,200,000 o números con formato de moneda en Sheets.
  *
  * Instrucciones:
