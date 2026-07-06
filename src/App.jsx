@@ -333,31 +333,9 @@ function Dashboard({ mile, rafa, month, setMonth }) {
         </div>
       </div>
 
-      <div className="mobile-records dashboard-mobile-records" aria-label="Tabla Oficial filtrada en tarjetas">
-        {rangeRows.map((row) => (
-          <article className="mobile-record" key={`dashboard-mobile-${row.id}`}>
-            <div className="mobile-record-head">
-              <div>
-                <strong>{row.concepto || 'Movimiento'}</strong>
-                <span>{row.fecha} · {row.proveedor || 'Sin proveedor'}</span>
-              </div>
-              <em className={getIngreso(row) > 0 ? 'income' : 'expense'}>
-                {getIngreso(row) > 0 ? '+' : '-'}{money(getMovementAmount(row))}
-              </em>
-            </div>
-            <div className="mobile-record-meta">
-              {visibleColumns.map((columnKey) => {
-                const column = DASHBOARD_TABLE_COLUMNS.find((item) => item.key === columnKey);
-                if (!column) return null;
-                return <span key={columnKey}><b>{column.label}:</b> {renderDashboardCell(row, columnKey)}</span>;
-              })}
-            </div>
-          </article>
-        ))}
-        {rangeRows.length === 0 ? <div className="empty mobile-empty">No hay registros en este rango.</div> : null}
-      </div>
+      <p className="table-scroll-hint">Desliza la tabla hacia los lados para ver más columnas.</p>
 
-      <div className="table-wrap desktop-table dashboard-table-wrap">
+      <div className="table-wrap dashboard-table-wrap dashboard-responsive-table">
         <table>
           <thead>
             <tr>

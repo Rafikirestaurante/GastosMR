@@ -1148,6 +1148,19 @@ select {
   min-width: 1040px;
 }
 
+.table-scroll-hint {
+  display: none;
+  margin: -0.15rem 0 0.55rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.dashboard-responsive-table {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .dashboard-bottom-panels {
   margin-top: 1rem;
 }
@@ -1195,7 +1208,36 @@ select {
     justify-content: flex-start;
   }
 
-  .dashboard-mobile-records {
+  .table-scroll-hint {
+    display: block;
+  }
+
+  .dashboard-responsive-table {
     margin-bottom: 1rem;
+    border-radius: 14px;
+  }
+
+  .dashboard-responsive-table table {
+    min-width: 760px;
+    font-size: 0.78rem;
+  }
+
+  .dashboard-responsive-table th,
+  .dashboard-responsive-table td {
+    padding: 0.55rem 0.5rem;
+    white-space: nowrap;
+  }
+
+  .dashboard-responsive-table th:first-child,
+  .dashboard-responsive-table td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--panel-strong);
+    box-shadow: 8px 0 12px rgba(63, 47, 31, 0.08);
+  }
+
+  .dashboard-responsive-table th:first-child {
+    z-index: 3;
   }
 }
