@@ -1,5 +1,5 @@
 /************************************************************
- * Control Gastos Milena - Fase 3C
+ * Control Gastos Milena - Fase 3D
  * Backend Google Apps Script para Google Sheets.
  *
  * Hoja principal activa: "Tabla Oficial".
@@ -13,6 +13,7 @@
  *
  * Fase 2K/2L: sincronización segura para uso simultáneo y compatible con cola local.
  * Fase 3C: hoja Recordatorios sincronizada con la misma cola local de la app.
+ * Fase 3D: diagnóstico anti-versión-vieja para confirmar backend, hoja y URL activa.
  * - ID real por movimiento, sin depender del número de fila.
  * - LockService para crear/editar/borrar sin choques.
  * - Eliminación lógica con Estado = Eliminado.
@@ -27,6 +28,9 @@
 
 const SPREADSHEET_ID = 'PEGA_AQUI_EL_ID_DE_TU_GOOGLE_SHEET';
 const APP_TOKEN = 'cambia-este-token-largo';
+
+const PROJECT_NAME = 'Control Gastos Milena';
+const BACKEND_VERSION = '1.6.3-fase-3d-diagnostico-conexion';
 
 const SHEETS = {
   mile: 'Tabla Oficial',
@@ -89,7 +93,20 @@ function doGet(e) {
     const payload = parsePayload_(params.payload);
 
     if (action === 'health') {
-      return respond_({ ok: true, message: 'Apps Script conectado correctamente.' }, callback);
+      return respond_({
+        ok: true,
+        message: 'Apps Script conectado correctamente.',
+        projectName: PROJECT_NAME,
+        backendVersion: BACKEND_VERSION,
+        configuredSpreadsheetId: maskId_(SPREADSHEET_ID),
+        configuredSpreadsheetIdFull: SPREADSHEET_ID,
+        scriptTimeZone: Session.getScriptTimeZone(),
+        generatedAt: nowIso_()
+      }, callback);
+    }
+
+    if (action === 'diagnostic') {
+      return respond_(buildDiagnostic_(), callback);
     }
 
     if (action === 'bootstrap') {
@@ -159,6 +176,58 @@ function respond_(obj, callback) {
   return ContentService
     .createTextOutput(text)
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+
+function maskId_(id) {
+  const text = String(id || '').trim();
+  if (!text) return '';
+  if (text.length <= 14) return text;
+  return text.slice(0, 8) + '...' + text.slice(-6);
+}
+
+function buildDiagnostic_() {
+  const result = {
+    ok: true,
+    projectName: PROJECT_NAME,
+    backendVersion: BACKEND_VERSION,
+    configuredSpreadsheetId: maskId_(SPREADSHEET_ID),
+    configuredSpreadsheetIdFull: SPREADSHEET_ID,
+    tokenConfigured: Boolean(APP_TOKEN && APP_TOKEN !== 'cambia-este-token-largo'),
+    scriptTimeZone: Session.getScriptTimeZone(),
+    generatedAt: nowIso_(),
+    spreadsheet: {
+      ok: false,
+      name: '',
+      url: '',
+      sheets: [],
+      recordatoriosSheet: false,
+      tablaOficialSheet: false,
+      configuracionSheet: false,
+      gastosRafaSheet: false
+    }
+  };
+
+  try {
+    const spreadsheet = getSpreadsheet_();
+    const sheetNames = spreadsheet.getSheets().map(sheet => sheet.getName());
+    result.spreadsheet = {
+      ok: true,
+      name: spreadsheet.getName(),
+      url: spreadsheet.getUrl(),
+      sheets: sheetNames,
+      recordatoriosSheet: sheetNames.indexOf(SHEETS.reminders) !== -1,
+      tablaOficialSheet: sheetNames.indexOf(SHEETS.mile) !== -1,
+      configuracionSheet: sheetNames.indexOf(SHEETS.config) !== -1,
+      gastosRafaSheet: sheetNames.indexOf(SHEETS.rafa) !== -1
+    };
+  } catch (error) {
+    result.ok = false;
+    result.message = 'Apps Script respondió, pero no pudo abrir el Google Sheet configurado.';
+    result.spreadsheet.error = error.message || String(error);
+  }
+
+  return result;
 }
 
 function getSpreadsheet_() {

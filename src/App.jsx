@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { getCachedRemoteSnapshot, sheetsRequest } from './api/sheetsApi.js';
+import { getCachedRemoteSnapshot, sheetsRequest, runConnectionDiagnostic, FRONTEND_VERSION, EXPECTED_BACKEND_VERSION } from './api/sheetsApi.js';
 import {
   createOperation,
   createTempId,
@@ -41,7 +41,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 3C';
+const APP_VERSION = 'Fase 3D · Diagnóstico conexión';
 const SYNC_DELAY_MS = 2500;
 
 function reloadApp() {
@@ -128,7 +128,7 @@ function StatusChip({ type = 'info', children, title = '' }) {
   );
 }
 
-function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefresh, pendingSyncCount, failedSyncCount, syncing, onSyncNow }) {
+function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefresh, pendingSyncCount, failedSyncCount, syncing, onSyncNow, onDiagnostic, diagnosticLoading }) {
   let connectionType = 'success';
   let connectionText = 'Conectado';
   let connectionTitle = 'Conectado correctamente a Google Sheets.';
@@ -191,6 +191,9 @@ function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefr
         <button className="secondary" type="button" onClick={onRefresh} disabled={loading}>
           {loading ? 'Actualizando...' : 'Actualizar datos'}
         </button>
+        <button className="secondary diagnostic-button" type="button" onClick={onDiagnostic} disabled={diagnosticLoading}>
+          {diagnosticLoading ? 'Diagnosticando...' : 'Diagnóstico'}
+        </button>
         {pendingSyncCount > 0 ? (
           <button className="secondary sync-now-button" type="button" onClick={onSyncNow} disabled={syncing}>
             {syncing ? 'Sincronizando...' : 'Sincronizar ahora'}
@@ -204,6 +207,97 @@ function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefr
   );
 }
 
+
+
+function readDiagnosticPath(obj, path, fallback = '') {
+  return path.split('.').reduce((acc, key) => acc && acc[key] !== undefined ? acc[key] : undefined, obj) ?? fallback;
+}
+
+function DiagnosticRow({ label, value, danger = false }) {
+  return (
+    <div className="diagnostic-row">
+      <span>{label}</span>
+      <strong className={danger ? 'danger-text' : ''}>{String(value || '—')}</strong>
+    </div>
+  );
+}
+
+function DiagnosticPanel({ open, loading, result, onClose }) {
+  if (!open) return null;
+
+  const backendVersion = result?.backendVersion || readDiagnosticPath(result, 'diagnostic.backendVersion', 'No reportada');
+  const versionMismatch = backendVersion !== 'No reportada' && backendVersion !== EXPECTED_BACKEND_VERSION;
+  const spreadsheetOk = Boolean(result?.spreadsheet?.ok);
+  const configuredSpreadsheetId = result?.configuredSpreadsheetIdFull || result?.configuredSpreadsheetId || '';
+  const sheetNames = result?.spreadsheet?.sheets || [];
+  const vercelUrl = readDiagnosticPath(result, 'diagnostic.vercel.appsScriptUrlPreview', readDiagnosticPath(result, 'diagnostic.frontend.appsScriptUrlPreview', ''));
+  const proxyError = readDiagnosticPath(result, 'diagnostic.proxyError', '');
+  const directError = readDiagnosticPath(result, 'diagnostic.directError', '');
+
+  return (
+    <div className="diagnostic-overlay" role="dialog" aria-modal="true" aria-label="Diagnóstico de conexión">
+      <div className="diagnostic-card">
+        <div className="diagnostic-head">
+          <div>
+            <p className="eyebrow">Fase 3D</p>
+            <h2>Diagnóstico de conexión</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar diagnóstico">×</button>
+        </div>
+
+        {loading ? <div className="panel loading">Revisando Vercel, Apps Script y Google Sheets...</div> : null}
+
+        {!loading && result ? (
+          <div className="diagnostic-body">
+            <div className={`diagnostic-status ${result.ok ? 'success' : 'danger'}`}>
+              <strong>{result.ok ? 'Conexión revisada' : 'Se encontró un problema'}</strong>
+              <span>{result.message || (result.ok ? 'Apps Script respondió al diagnóstico.' : 'No se pudo completar el diagnóstico.')}</span>
+            </div>
+
+            {versionMismatch ? (
+              <div className="diagnostic-warning">
+                <strong>Posible versión vieja detectada.</strong>
+                <span>La app espera el backend {EXPECTED_BACKEND_VERSION}, pero Apps Script respondió {backendVersion}. Crea una “Nueva versión” en Apps Script y copia esa URL en Vercel.</span>
+              </div>
+            ) : null}
+
+            <div className="diagnostic-grid">
+              <DiagnosticRow label="Frontend esperado" value={FRONTEND_VERSION} />
+              <DiagnosticRow label="Backend respondido" value={backendVersion} danger={versionMismatch} />
+              <DiagnosticRow label="URL Apps Script en Vercel" value={vercelUrl} />
+              <DiagnosticRow label="ID de Google Sheet configurado" value={configuredSpreadsheetId || readDiagnosticPath(result, 'configuredSpreadsheetId', '')} />
+              <DiagnosticRow label="Google Sheet conectado" value={spreadsheetOk ? 'Sí' : 'No'} danger={!spreadsheetOk} />
+              <DiagnosticRow label="Nombre del archivo" value={readDiagnosticPath(result, 'spreadsheet.name', '')} />
+              <DiagnosticRow label="Tabla Oficial" value={readDiagnosticPath(result, 'spreadsheet.tablaOficialSheet', false) ? 'Existe' : 'No encontrada'} danger={!readDiagnosticPath(result, 'spreadsheet.tablaOficialSheet', false)} />
+              <DiagnosticRow label="Recordatorios" value={readDiagnosticPath(result, 'spreadsheet.recordatoriosSheet', false) ? 'Existe' : 'Se creará al sincronizar'} />
+            </div>
+
+            {sheetNames.length ? (
+              <div className="diagnostic-list">
+                <strong>Hojas encontradas</strong>
+                <span>{sheetNames.join(' · ')}</span>
+              </div>
+            ) : null}
+
+            {proxyError || directError ? (
+              <div className="diagnostic-list danger-text">
+                {proxyError ? <span><b>Puente Vercel:</b> {proxyError}</span> : null}
+                {directError ? <span><b>Apps Script directo:</b> {directError}</span> : null}
+              </div>
+            ) : null}
+
+            <div className="diagnostic-help">
+              <strong>Qué hacer si todavía aparece el ID viejo</strong>
+              <span>1. En Apps Script: Implementar → Administrar implementaciones → lápiz → Versión nueva → Implementar.</span>
+              <span>2. Copia la URL de esa app web y pégala en Vercel como VITE_APPS_SCRIPT_URL.</span>
+              <span>3. En Vercel haz Redeploy. Luego vuelve a abrir este diagnóstico.</span>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 const DASHBOARD_TABLE_COLUMNS = [
   { key: 'fecha', label: 'Fecha' },
@@ -1382,6 +1476,9 @@ export default function App() {
   const [editing, setEditing] = useState(null);
   const [syncQueue, setSyncQueueState] = useState(() => getSyncQueue());
   const [syncing, setSyncing] = useState(false);
+  const [diagnosticOpen, setDiagnosticOpen] = useState(false);
+  const [diagnosticLoading, setDiagnosticLoading] = useState(false);
+  const [diagnosticResult, setDiagnosticResult] = useState(null);
 
   const mileRef = useRef(mile);
   const rafaRef = useRef(rafa);
@@ -1658,6 +1755,21 @@ export default function App() {
     };
   }, []);
 
+
+  async function openDiagnosticPanel() {
+    setDiagnosticOpen(true);
+    setDiagnosticLoading(true);
+    setDiagnosticResult(null);
+    try {
+      const result = await runConnectionDiagnostic();
+      setDiagnosticResult(result);
+    } catch (err) {
+      setDiagnosticResult({ ok: false, message: err.message || 'No se pudo ejecutar el diagnóstico.' });
+    } finally {
+      setDiagnosticLoading(false);
+    }
+  }
+
   function saveMile(data) {
     setError('');
     setNotice('Guardado local');
@@ -1827,7 +1939,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 3C</small>
+            <small>Milena · Fase 3D</small>
           </div>
         </div>
         <nav>
@@ -1851,7 +1963,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 3C</span>
+          <span className="version" title={APP_VERSION}>Fase 3D</span>
         </header>
 
         <StatusBar
@@ -1866,6 +1978,8 @@ export default function App() {
           failedSyncCount={failedSyncCount}
           syncing={syncing}
           onSyncNow={() => processSyncQueue(true)}
+          onDiagnostic={openDiagnosticPanel}
+          diagnosticLoading={diagnosticLoading}
         />
 
         {loading && mile.length === 0 && rafa.length === 0 && reminders.length === 0 ? <div className="panel loading">Cargando información...</div> : null}
@@ -1914,6 +2028,12 @@ export default function App() {
 
         {(active === 'config' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? <ConfigPanel config={config} /> : null}
       </section>
+      <DiagnosticPanel
+        open={diagnosticOpen}
+        loading={diagnosticLoading}
+        result={diagnosticResult}
+        onClose={() => setDiagnosticOpen(false)}
+      />
       <ReminderAssistant
         reminders={reminders}
         onCreate={createReminder}

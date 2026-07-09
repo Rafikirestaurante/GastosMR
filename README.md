@@ -1,4 +1,4 @@
-# Control Gastos Milena — Fase 3C
+# Control Gastos Milena — Fase 3D
 
 Aplicación web sencilla para controlar los gastos de Milena usando React + Vite, Vercel y Google Sheets mediante Google Apps Script.
 
@@ -168,3 +168,48 @@ notas/
 ```
 
 La carpeta se mantiene por debajo de 20 archivos.
+
+
+## Fase 3D - Diagnóstico de conexión
+
+Esta versión agrega un botón **Diagnóstico** en la barra de estado para evitar volver a trabajar a ciegas cuando Vercel o Apps Script quedan apuntando a una versión vieja.
+
+El diagnóstico permite confirmar desde la app publicada:
+
+- Versión del frontend.
+- Versión del backend Apps Script.
+- URL de Apps Script configurada en Vercel, enmascarada.
+- ID real de Google Sheets configurado en Apps Script.
+- Nombre real del archivo de Google Sheets.
+- Existencia de `Tabla Oficial`, `Recordatorios`, `Configuracion` y `Gastos Rafa`.
+
+### Variables de Vercel
+
+Siguen siendo suficientes estas dos variables:
+
+```env
+VITE_APPS_SCRIPT_URL=https://script.google.com/macros/s/TU_DEPLOYMENT_ID/exec
+VITE_APP_TOKEN=rafa1234
+```
+
+Opcionalmente también se pueden agregar estas dos equivalentes para el puente interno:
+
+```env
+APPS_SCRIPT_URL=https://script.google.com/macros/s/TU_DEPLOYMENT_ID/exec
+APP_TOKEN=rafa1234
+```
+
+### Apps Script
+
+Después de pegar el nuevo `apps-script/Code.gs`, configurar:
+
+```js
+const SPREADSHEET_ID = 'ID_REAL_DE_TU_GOOGLE_SHEET';
+const APP_TOKEN = 'rafa1234';
+```
+
+Luego hacer obligatoriamente:
+
+`Guardar → Implementar → Administrar implementaciones → lápiz → Nueva versión → Implementar`.
+
+Si el diagnóstico muestra un backend distinto a `1.6.3-fase-3d-diagnostico-conexion`, Vercel sigue apuntando a una implementación vieja o Apps Script no fue desplegado como nueva versión.

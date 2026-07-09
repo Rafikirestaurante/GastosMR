@@ -1,4 +1,6 @@
 const DEFAULT_TIMEOUT_MS = 15000;
+const FRONTEND_VERSION = '1.6.3-fase-3d-diagnostico-conexion';
+const EXPECTED_BACKEND_VERSION = '1.6.3-fase-3d-diagnostico-conexion';
 
 function readBody(req) {
   if (!req.body) return {};
@@ -19,6 +21,25 @@ function getRuntimeConfig() {
   };
 }
 
+function maskToken(token = '') {
+  const text = String(token || '');
+  if (!text) return '';
+  if (text.length <= 4) return '***';
+  return `${text.slice(0, 2)}***${text.slice(-2)}`;
+}
+
+function maskUrl(rawUrl = '') {
+  try {
+    const url = new URL(rawUrl);
+    const parts = url.pathname.split('/').filter(Boolean);
+    const deploymentId = parts[2] || parts[1] || '';
+    const maskedDeployment = deploymentId.length > 14 ? `${deploymentId.slice(0, 8)}...${deploymentId.slice(-6)}` : deploymentId;
+    return `${url.origin}/macros/s/${maskedDeployment}/exec`;
+  } catch {
+    return rawUrl ? 'URL inválida configurada' : '';
+  }
+}
+
 function buildAppsScriptUrl(appsScriptUrl, appToken, action, payload) {
   const url = new URL(appsScriptUrl);
   url.searchParams.set('action', action || 'bootstrap');
@@ -34,6 +55,20 @@ function sendJson(res, status, body) {
   res.status(status).send(JSON.stringify(body));
 }
 
+function baseDiagnostic(appsScriptUrl, appToken) {
+  return {
+    frontendVersion: FRONTEND_VERSION,
+    expectedBackendVersion: EXPECTED_BACKEND_VERSION,
+    vercel: {
+      ok: Boolean(appsScriptUrl && appToken),
+      appsScriptUrlConfigured: Boolean(appsScriptUrl),
+      appsScriptUrlPreview: maskUrl(appsScriptUrl),
+      appTokenConfigured: Boolean(appToken),
+      appTokenPreview: maskToken(appToken)
+    }
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -46,17 +81,29 @@ export default async function handler(req, res) {
   }
 
   const { appsScriptUrl, appToken } = getRuntimeConfig();
-  if (!appsScriptUrl || appsScriptUrl.includes('PEGA_AQUI') || !appToken) {
-    return sendJson(res, 500, {
-      ok: false,
-      message: 'Faltan variables de entorno en Vercel: VITE_APPS_SCRIPT_URL y VITE_APP_TOKEN.'
-    });
-  }
-
   const body = readBody(req);
   const action = body.action || 'bootstrap';
   const payload = body.payload || {};
-  const targetUrl = buildAppsScriptUrl(appsScriptUrl, appToken, action, payload);
+  const diagnosticBase = baseDiagnostic(appsScriptUrl, appToken);
+
+  if (!appsScriptUrl || appsScriptUrl.includes('PEGA_AQUI') || !appToken) {
+    return sendJson(res, 500, {
+      ok: false,
+      message: 'Faltan variables de entorno en Vercel: VITE_APPS_SCRIPT_URL y VITE_APP_TOKEN.',
+      diagnostic: diagnosticBase
+    });
+  }
+
+  let targetUrl;
+  try {
+    targetUrl = buildAppsScriptUrl(appsScriptUrl, appToken, action, payload);
+  } catch {
+    return sendJson(res, 500, {
+      ok: false,
+      message: 'La variable VITE_APPS_SCRIPT_URL no parece ser una URL válida de Apps Script.',
+      diagnostic: diagnosticBase
+    });
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
@@ -68,7 +115,7 @@ export default async function handler(req, res) {
       signal: controller.signal,
       headers: {
         'Accept': 'application/json,text/plain,*/*',
-        'User-Agent': 'Control-Gastos-Milena/3C'
+        'User-Agent': 'Control-Gastos-Milena/3D'
       }
     });
 
@@ -80,18 +127,33 @@ export default async function handler(req, res) {
     } catch {
       return sendJson(res, 502, {
         ok: false,
-        message: 'Apps Script respondió, pero no devolvió JSON válido. Revisa que la URL termine en /exec y que el despliegue sea Web App.'
+        message: 'Apps Script respondió, pero no devolvió JSON válido. Revisa que la URL termine en /exec y que el despliegue sea Web App.',
+        diagnostic: diagnosticBase
       });
     }
 
+    const backendVersion = data?.backendVersion || data?.data?.backendVersion || '';
+    const versionMismatch = backendVersion && backendVersion !== EXPECTED_BACKEND_VERSION;
+    const enriched = {
+      ...data,
+      diagnostic: {
+        ...diagnosticBase,
+        backendVersion: backendVersion || 'No reportada por Apps Script',
+        versionMismatch,
+        appsScriptResponseOk: response.ok,
+        appsScriptMessage: data?.message || ''
+      }
+    };
+
     if (!response.ok) {
       return sendJson(res, 502, {
+        ...enriched,
         ok: false,
         message: data?.message || 'Google Apps Script respondió con error.'
       });
     }
 
-    return sendJson(res, 200, data);
+    return sendJson(res, 200, enriched);
   } catch (error) {
     const message = error?.name === 'AbortError'
       ? 'La conexión con Google Apps Script tardó demasiado desde Vercel.'
@@ -99,7 +161,8 @@ export default async function handler(req, res) {
 
     return sendJson(res, 502, {
       ok: false,
-      message
+      message,
+      diagnostic: diagnosticBase
     });
   } finally {
     clearTimeout(timeout);

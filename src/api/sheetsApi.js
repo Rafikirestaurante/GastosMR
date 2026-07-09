@@ -2,8 +2,11 @@ import { normalizeText, parseAmount, todayISO } from '../utils/format.js';
 
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || '';
 const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || '';
-const DEMO_KEY = 'control-gastos-milena-demo-v3c-recordatorios';
-const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v3c-recordatorios';
+export const FRONTEND_VERSION = '1.6.3-fase-3d-diagnostico-conexion';
+export const EXPECTED_BACKEND_VERSION = '1.6.3-fase-3d-diagnostico-conexion';
+
+const DEMO_KEY = 'control-gastos-milena-demo-v3d-diagnostico';
+const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v3d-diagnostico';
 const PROXY_URL = '/api/sheets';
 const DIRECT_TIMEOUT_MS = 15000;
 
@@ -176,6 +179,36 @@ export function hasRemoteConfig() {
   return Boolean(APPS_SCRIPT_URL && !APPS_SCRIPT_URL.includes('PEGA_AQUI') && APP_TOKEN);
 }
 
+function maskText(value = '', start = 8, end = 6) {
+  const text = String(value || '');
+  if (!text) return '';
+  if (text.length <= start + end + 3) return text;
+  return `${text.slice(0, start)}...${text.slice(-end)}`;
+}
+
+function safeUrlPreview(rawUrl = '') {
+  try {
+    const url = new URL(rawUrl);
+    const parts = url.pathname.split('/').filter(Boolean);
+    const deploymentId = parts[2] || parts[1] || '';
+    return `${url.origin}/macros/s/${maskText(deploymentId)}/exec`;
+  } catch {
+    return rawUrl ? 'URL inválida configurada' : '';
+  }
+}
+
+export function getClientDiagnosticBase() {
+  return {
+    frontendVersion: FRONTEND_VERSION,
+    expectedBackendVersion: EXPECTED_BACKEND_VERSION,
+    remoteConfig: hasRemoteConfig(),
+    appsScriptUrlConfigured: Boolean(APPS_SCRIPT_URL),
+    appsScriptUrlPreview: safeUrlPreview(APPS_SCRIPT_URL),
+    appTokenConfigured: Boolean(APP_TOKEN),
+    appTokenPreview: APP_TOKEN ? `${APP_TOKEN.slice(0, 2)}***${APP_TOKEN.slice(-2)}` : ''
+  };
+}
+
 function nextId(records, prefix) {
   const max = records.reduce((acc, item) => {
     const number = Number(String(item.id || '').replace(/\D/g, ''));
@@ -345,5 +378,50 @@ export async function sheetsRequest(action, payload = {}) {
     return response;
   } catch (directError) {
     throw new Error(directError.message || proxyError?.message || 'No se pudo conectar con Google Apps Script.');
+  }
+}
+
+
+export async function runConnectionDiagnostic() {
+  const base = getClientDiagnosticBase();
+  if (!hasRemoteConfig()) {
+    return {
+      ok: false,
+      message: 'La app no tiene configuradas VITE_APPS_SCRIPT_URL y VITE_APP_TOKEN.',
+      diagnostic: { frontend: base }
+    };
+  }
+
+  try {
+    const response = await proxyRequest('diagnostic', {});
+    return {
+      ...response,
+      diagnostic: {
+        ...(response.diagnostic || {}),
+        frontend: base
+      }
+    };
+  } catch (proxyError) {
+    try {
+      const response = await jsonpRequest('diagnostic', {});
+      return {
+        ...response,
+        diagnostic: {
+          ...(response.diagnostic || {}),
+          frontend: base,
+          proxyError: proxyError.message || ''
+        }
+      };
+    } catch (directError) {
+      return {
+        ok: false,
+        message: directError.message || proxyError.message || 'No se pudo ejecutar el diagnóstico.',
+        diagnostic: {
+          frontend: base,
+          proxyError: proxyError.message || '',
+          directError: directError.message || ''
+        }
+      };
+    }
   }
 }
