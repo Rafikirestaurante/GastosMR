@@ -41,7 +41,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 2M';
+const APP_VERSION = 'Fase 3A';
 const SYNC_DELAY_MS = 2500;
 
 function reloadApp() {
@@ -263,6 +263,225 @@ function markPending(row, status = 'pending') {
     syncStatus: status,
     syncError: status === 'failed' ? row.syncError : ''
   };
+}
+
+
+const REMINDERS_STORAGE_KEY = 'control-gastos-milena-reminders-v1';
+
+function readStoredReminders() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(REMINDERS_STORAGE_KEY) || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item) => ({
+      id: item.id || `rem-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      text: item.text || '',
+      dueDate: item.dueDate || '',
+      status: item.status === 'done' ? 'done' : 'pending',
+      createdAt: item.createdAt || new Date().toISOString(),
+      completedAt: item.completedAt || ''
+    })).filter((item) => item.text.trim());
+  } catch {
+    return [];
+  }
+}
+
+function saveStoredReminders(reminders) {
+  window.localStorage.setItem(REMINDERS_STORAGE_KEY, JSON.stringify(reminders));
+}
+
+function addDaysToISO(baseISO, days) {
+  const [year, month, day] = baseISO.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function parseReminderCommand(rawText) {
+  const original = String(rawText || '').trim();
+  const lower = normalizeText(original);
+  let dueDate = '';
+  const today = todayISO();
+
+  if (lower.includes('manana') || lower.includes('mañana')) {
+    dueDate = addDaysToISO(today, 1);
+  } else if (lower.includes('hoy')) {
+    dueDate = today;
+  } else {
+    const dateMatch = original.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+    if (dateMatch) dueDate = dateMatch[1];
+  }
+
+  const cleaned = original
+    .replace(/^(crear\s+)?(recordatorio|recordar|recuerdame|recuérdame|anotar|nota)\s*(que|de|para)?\s*/i, '')
+    .replace(/\b(hoy|mañana|manana)\b/gi, '')
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return {
+    text: cleaned || original,
+    dueDate
+  };
+}
+
+function formatReminderDate(dueDate) {
+  if (!dueDate) return 'Sin fecha';
+  if (dueDate === todayISO()) return 'Hoy';
+  if (dueDate === addDaysToISO(todayISO(), 1)) return 'Mañana';
+  return formatShortDate(dueDate);
+}
+
+function ReminderAssistant() {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState('');
+  const [reminders, setReminders] = useState(() => readStoredReminders());
+  const [messages, setMessages] = useState([
+    {
+      id: 'welcome',
+      role: 'bot',
+      text: 'Hola, soy el asistente de recordatorios. Puedes escribirme: “Recordar pagar arriendo mañana” o “Recordar llamar al proveedor 2026-07-15”.'
+    }
+  ]);
+  const listRef = useRef(null);
+
+  useEffect(() => {
+    saveStoredReminders(reminders);
+  }, [reminders]);
+
+  useEffect(() => {
+    if (!open || !listRef.current) return;
+    listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [messages, open]);
+
+  const pendingReminders = reminders
+    .filter((item) => item.status !== 'done')
+    .sort((a, b) => String(a.dueDate || '9999-99-99').localeCompare(String(b.dueDate || '9999-99-99')) || String(a.createdAt).localeCompare(String(b.createdAt)));
+  const doneReminders = reminders
+    .filter((item) => item.status === 'done')
+    .sort((a, b) => String(b.completedAt || b.createdAt).localeCompare(String(a.completedAt || a.createdAt)))
+    .slice(0, 4);
+  const todayCount = pendingReminders.filter((item) => item.dueDate === todayISO()).length;
+
+  function sendMessage(event) {
+    event?.preventDefault();
+    const raw = input.trim();
+    if (!raw) return;
+
+    const parsed = parseReminderCommand(raw);
+    const newReminder = {
+      id: `rem-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      text: parsed.text,
+      dueDate: parsed.dueDate,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      completedAt: ''
+    };
+
+    setReminders((current) => [newReminder, ...current]);
+    setMessages((current) => [
+      ...current,
+      { id: `user-${Date.now()}`, role: 'user', text: raw },
+      {
+        id: `bot-${Date.now()}`,
+        role: 'bot',
+        text: `Listo. Guardé el recordatorio: “${newReminder.text}” (${formatReminderDate(newReminder.dueDate)}).`
+      }
+    ]);
+    setInput('');
+  }
+
+  function completeReminder(id) {
+    const reminder = reminders.find((item) => item.id === id);
+    setReminders((current) => current.map((item) => (
+      item.id === id ? { ...item, status: 'done', completedAt: new Date().toISOString() } : item
+    )));
+    if (reminder) {
+      setMessages((current) => [
+        ...current,
+        { id: `bot-done-${Date.now()}`, role: 'bot', text: `Marcado como completado: “${reminder.text}”.` }
+      ]);
+    }
+  }
+
+  function deleteReminder(id) {
+    const reminder = reminders.find((item) => item.id === id);
+    setReminders((current) => current.filter((item) => item.id !== id));
+    if (reminder) {
+      setMessages((current) => [
+        ...current,
+        { id: `bot-del-${Date.now()}`, role: 'bot', text: `Eliminé el recordatorio: “${reminder.text}”.` }
+      ]);
+    }
+  }
+
+  return (
+    <div className={`assistant-widget ${open ? 'open' : ''}`}>
+      {open ? (
+        <section className="assistant-panel" aria-label="Asistente de recordatorios">
+          <header className="assistant-header">
+            <div>
+              <span>Asistente</span>
+              <strong>Recordatorios</strong>
+            </div>
+            <button type="button" className="assistant-close" onClick={() => setOpen(false)} aria-label="Cerrar asistente">×</button>
+          </header>
+
+          <div className="assistant-summary">
+            <span>{pendingReminders.length} pendiente(s)</span>
+            {todayCount > 0 ? <strong>{todayCount} para hoy</strong> : <strong>Sin urgentes</strong>}
+          </div>
+
+          <div className="assistant-messages" ref={listRef}>
+            {messages.map((message) => (
+              <p key={message.id} className={`assistant-message ${message.role}`}>{message.text}</p>
+            ))}
+          </div>
+
+          <form className="assistant-form" onSubmit={sendMessage}>
+            <input
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder="Ej: Recordar pagar luz mañana"
+            />
+            <button type="submit">Guardar</button>
+          </form>
+
+          <div className="assistant-reminders">
+            <h3>Pendientes</h3>
+            {pendingReminders.length === 0 ? <p className="empty-small">No hay recordatorios pendientes.</p> : null}
+            {pendingReminders.slice(0, 6).map((item) => (
+              <article key={item.id} className="assistant-reminder-card">
+                <div>
+                  <strong>{item.text}</strong>
+                  <span>{formatReminderDate(item.dueDate)}</span>
+                </div>
+                <div className="assistant-reminder-actions">
+                  <button type="button" onClick={() => completeReminder(item.id)}>✓</button>
+                  <button type="button" className="danger-mini" onClick={() => deleteReminder(item.id)}>×</button>
+                </div>
+              </article>
+            ))}
+
+            {doneReminders.length > 0 ? <h3>Completados recientes</h3> : null}
+            {doneReminders.map((item) => (
+              <article key={item.id} className="assistant-reminder-card done">
+                <div>
+                  <strong>{item.text}</strong>
+                  <span>Completado</span>
+                </div>
+                <button type="button" className="danger-mini" onClick={() => deleteReminder(item.id)}>×</button>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <button type="button" className="assistant-fab" onClick={() => setOpen((current) => !current)} aria-label="Abrir asistente de recordatorios">
+        <span>💬</span>
+        {pendingReminders.length > 0 ? <em>{pendingReminders.length}</em> : null}
+      </button>
+    </div>
+  );
 }
 
 function Dashboard({ mile, rafa, month, setMonth }) {
@@ -1250,7 +1469,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 2M</small>
+            <small>Milena · Fase 3A</small>
           </div>
         </div>
         <nav>
@@ -1274,7 +1493,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 2M</span>
+          <span className="version" title={APP_VERSION}>Fase 3A</span>
         </header>
 
         <StatusBar
@@ -1337,6 +1556,7 @@ export default function App() {
 
         {(active === 'config' && (!loading || mile.length > 0 || rafa.length > 0)) ? <ConfigPanel config={config} /> : null}
       </section>
+      <ReminderAssistant />
     </main>
   );
 }

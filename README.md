@@ -1,4 +1,4 @@
-# Control Gastos Milena — Fase 2M
+# Control Gastos Milena — Fase 3A
 
 Aplicación web sencilla para controlar los gastos de Milena usando React + Vite, Vercel y Google Sheets mediante Google Apps Script.
 
@@ -23,6 +23,29 @@ ID_Transaccion | Creado_en | Actualizado_en | Estado
 ```
 
 Estas columnas técnicas permiten editar, borrar y sincronizar de forma más segura sin depender del número de fila.
+
+## Fase 3A - Asistente interno de recordatorios
+
+Esta fase inicia el desarrollo del chatbot interno de recordatorios generales.
+
+Incluye:
+
+- Botón flotante tipo asistente/chatbot.
+- Panel de conversación para crear recordatorios rápidos.
+- Interpretación básica de fechas: `hoy`, `mañana` o fecha exacta `AAAA-MM-DD`.
+- Lista de recordatorios pendientes.
+- Opción para marcar como completado o eliminar.
+- Guardado local en el dispositivo mediante `localStorage`.
+
+Ejemplos de uso:
+
+```txt
+Recordar pagar arriendo mañana
+Recordar llamar al proveedor 2026-07-15
+Recordar revisar pagos hoy
+```
+
+En esta primera versión los recordatorios son locales al dispositivo. La sincronización con Google Sheets puede integrarse en una subfase posterior, cuando el flujo visual quede aprobado.
 
 ## Fase 2M - Guardado rápido local
 

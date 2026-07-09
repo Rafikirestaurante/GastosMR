@@ -1436,3 +1436,237 @@ select {
     width: auto;
   }
 }
+
+/* Fase 3A · Asistente interno de recordatorios */
+.assistant-widget {
+  position: fixed;
+  right: 1.2rem;
+  bottom: 1.2rem;
+  z-index: 50;
+  display: grid;
+  justify-items: end;
+  gap: 0.8rem;
+}
+
+.assistant-fab {
+  width: 58px;
+  height: 58px;
+  border-radius: 20px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 16px 40px rgba(45, 37, 31, 0.24);
+  position: relative;
+  font-size: 1.4rem;
+}
+
+.assistant-fab em {
+  position: absolute;
+  right: -0.35rem;
+  top: -0.35rem;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--danger);
+  color: white;
+  font-size: 0.74rem;
+  font-style: normal;
+  border: 2px solid var(--panel-strong);
+}
+
+.assistant-panel {
+  width: min(390px, calc(100vw - 1.6rem));
+  max-height: min(720px, calc(100vh - 6.5rem));
+  overflow: hidden;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow: 0 22px 70px rgba(45, 37, 31, 0.24);
+  display: grid;
+  grid-template-rows: auto auto minmax(120px, 1fr) auto auto;
+}
+
+.assistant-header {
+  padding: 1rem 1rem 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #33251d;
+  color: white;
+}
+
+.assistant-header span,
+.assistant-header strong {
+  display: block;
+}
+
+.assistant-header span {
+  color: #d8c9b9;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.assistant-close {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 1.35rem;
+}
+
+.assistant-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  background: var(--soft);
+  color: var(--primary-dark);
+  font-size: 0.86rem;
+}
+
+.assistant-summary strong {
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  background: var(--panel-strong);
+}
+
+.assistant-messages {
+  padding: 0.95rem 1rem;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  background: #fffaf3;
+}
+
+.assistant-message {
+  margin: 0;
+  max-width: 88%;
+  padding: 0.65rem 0.75rem;
+  border-radius: 16px;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.assistant-message.bot {
+  background: white;
+  border: 1px solid var(--border);
+  justify-self: start;
+}
+
+.assistant-message.user {
+  background: var(--primary);
+  color: white;
+  justify-self: end;
+}
+
+.assistant-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  padding: 0.85rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.assistant-form input {
+  min-width: 0;
+}
+
+.assistant-form button {
+  padding-inline: 0.8rem;
+}
+
+.assistant-reminders {
+  padding: 0 1rem 1rem;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.assistant-reminders h3 {
+  margin: 0.55rem 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.empty-small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.assistant-reminder-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.7rem;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 0.65rem;
+  margin-bottom: 0.45rem;
+  background: white;
+}
+
+.assistant-reminder-card.done {
+  opacity: 0.72;
+}
+
+.assistant-reminder-card strong,
+.assistant-reminder-card span {
+  display: block;
+}
+
+.assistant-reminder-card strong {
+  font-size: 0.9rem;
+}
+
+.assistant-reminder-card span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-top: 0.16rem;
+}
+
+.assistant-reminder-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.assistant-reminder-actions button,
+.assistant-reminder-card > button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 12px;
+}
+
+.danger-mini {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.danger-mini:hover:not(:disabled) {
+  background: var(--danger);
+  color: white;
+}
+
+@media (max-width: 720px) {
+  .assistant-widget {
+    right: 0.8rem;
+    bottom: 0.8rem;
+  }
+
+  .assistant-panel {
+    width: calc(100vw - 1.2rem);
+    max-height: calc(100vh - 5.7rem);
+  }
+
+  .assistant-fab {
+    width: 54px;
+    height: 54px;
+    border-radius: 18px;
+  }
+}
