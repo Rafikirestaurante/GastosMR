@@ -41,7 +41,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 3B';
+const APP_VERSION = 'Fase 3C';
 const SYNC_DELAY_MS = 2500;
 
 function reloadApp() {
@@ -268,22 +268,34 @@ function markPending(row, status = 'pending') {
 
 const REMINDERS_STORAGE_KEY = 'control-gastos-milena-reminders-v1';
 
+function normalizeReminderData(item = {}) {
+  const rawStatus = normalizeText(item.status || item.estado || 'pending');
+  return {
+    ...item,
+    id: item.id || item.idRecordatorio || `REM-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    text: item.text || item.titulo || '',
+    detail: item.detail || item.detalle || '',
+    dueDate: item.dueDate || item.fecha || '',
+    dueTime: item.dueTime || item.hora || '',
+    recurrence: item.recurrence || item.recurrencia || 'none',
+    recurrenceLabel: item.recurrenceLabel || item.etiquetaRecurrencia || '',
+    status: rawStatus === 'done' || rawStatus === 'completado' ? 'done' : rawStatus === 'deleted' || rawStatus === 'eliminado' ? 'deleted' : 'pending',
+    createdAt: item.createdAt || item.creadoEn || item.creado_en || new Date().toISOString(),
+    updatedAt: item.updatedAt || item.actualizadoEn || item.actualizado_en || '',
+    completedAt: item.completedAt || item.completadoEn || item.completado_en || '',
+    lastCompletedAt: item.lastCompletedAt || item.ultimoCompletadoEn || '',
+    syncStatus: item.syncStatus || 'synced',
+    syncError: item.syncError || ''
+  };
+}
+
 function readStoredReminders() {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(REMINDERS_STORAGE_KEY) || '[]');
     if (!Array.isArray(parsed)) return [];
-    return parsed.map((item) => ({
-      id: item.id || `rem-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      text: item.text || '',
-      dueDate: item.dueDate || '',
-      dueTime: item.dueTime || '',
-      recurrence: item.recurrence || 'none',
-      recurrenceLabel: item.recurrenceLabel || '',
-      status: item.status === 'done' ? 'done' : 'pending',
-      createdAt: item.createdAt || new Date().toISOString(),
-      completedAt: item.completedAt || '',
-      lastCompletedAt: item.lastCompletedAt || ''
-    })).filter((item) => item.text.trim());
+    return parsed
+      .map(normalizeReminderData)
+      .filter((item) => item.text.trim() && item.status !== 'deleted');
   } catch {
     return [];
   }
@@ -586,22 +598,17 @@ function getNextRecurrenceDate(reminder) {
   return '';
 }
 
-function ReminderAssistant() {
+function ReminderAssistant({ reminders, onCreate, onComplete, onDelete, syncing }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
-  const [reminders, setReminders] = useState(() => readStoredReminders());
   const [messages, setMessages] = useState([
     {
       id: 'welcome',
       role: 'bot',
-      text: 'Hola, soy el asistente de recordatorios. Puedes escribirme: “Recordar pagar arriendo mañana en la tarde”, “Recordar llamar al proveedor 15/07/26” o “Recordar revisar pagos cada mes”.'
+      text: 'Hola, soy el asistente de recordatorios. Puedes escribirme: “Recordar pagar arriendo mañana en la tarde”, “Recordar llamar al proveedor 15/07/26” o “Recordar revisar pagos cada mes”. Ahora también se sincronizan con Google Sheets.'
     }
   ]);
   const listRef = useRef(null);
-
-  useEffect(() => {
-    saveStoredReminders(reminders);
-  }, [reminders]);
 
   useEffect(() => {
     if (!open || !listRef.current) return;
@@ -609,13 +616,14 @@ function ReminderAssistant() {
   }, [messages, open]);
 
   const pendingReminders = reminders
-    .filter((item) => item.status !== 'done')
+    .filter((item) => item.status !== 'done' && item.status !== 'deleted')
     .sort((a, b) => `${a.dueDate || '9999-99-99'} ${a.dueTime || '99:99'}`.localeCompare(`${b.dueDate || '9999-99-99'} ${b.dueTime || '99:99'}`) || String(a.createdAt).localeCompare(String(b.createdAt)));
   const doneReminders = reminders
     .filter((item) => item.status === 'done')
     .sort((a, b) => String(b.completedAt || b.createdAt).localeCompare(String(a.completedAt || a.createdAt)))
     .slice(0, 4);
   const todayCount = pendingReminders.filter((item) => item.dueDate === todayISO()).length;
+  const pendingRemoteCount = reminders.filter((item) => ['pending', 'syncing', 'failed'].includes(item.syncStatus)).length;
 
   function sendMessage(event) {
     event?.preventDefault();
@@ -623,71 +631,42 @@ function ReminderAssistant() {
     if (!raw) return;
 
     const parsed = parseReminderCommand(raw);
-    const newReminder = {
-      id: `rem-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      text: parsed.text,
-      dueDate: parsed.dueDate,
-      dueTime: parsed.dueTime,
-      recurrence: parsed.recurrence,
-      recurrenceLabel: parsed.recurrenceLabel,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-      completedAt: ''
-    };
+    const newReminder = onCreate(parsed);
 
-    setReminders((current) => [newReminder, ...current]);
     setMessages((current) => [
       ...current,
       { id: `user-${Date.now()}`, role: 'user', text: raw },
       {
         id: `bot-${Date.now()}`,
         role: 'bot',
-        text: `Listo. Guardé el recordatorio: “${newReminder.text}” (${formatReminderDate(newReminder.dueDate, newReminder.dueTime, newReminder.recurrenceLabel)}).`
+        text: `Listo. Guardé el recordatorio: “${newReminder.text}” (${formatReminderDate(newReminder.dueDate, newReminder.dueTime, newReminder.recurrenceLabel)}). Quedó guardado localmente y se sincronizará con Google Sheets.`
       }
     ]);
     setInput('');
   }
 
   function completeReminder(id) {
-    const reminder = reminders.find((item) => item.id === id);
-    if (!reminder) return;
-
-    const completedAt = new Date().toISOString();
-    const nextDueDate = getNextRecurrenceDate(reminder);
-
-    setReminders((current) => current.map((item) => {
-      if (item.id !== id) return item;
-      if (nextDueDate) {
-        return {
-          ...item,
-          dueDate: nextDueDate,
-          status: 'pending',
-          completedAt: '',
-          lastCompletedAt: completedAt
-        };
-      }
-      return { ...item, status: 'done', completedAt };
-    }));
+    const result = onComplete(id);
+    if (!result) return;
 
     setMessages((current) => [
       ...current,
       {
         id: `bot-done-${Date.now()}`,
         role: 'bot',
-        text: nextDueDate
-          ? `Listo. Completé “${reminder.text}” y lo dejé programado nuevamente para ${formatReminderDate(nextDueDate, reminder.dueTime, reminder.recurrenceLabel)}.`
-          : `Marcado como completado: “${reminder.text}”.`
+        text: result.nextDueDate
+          ? `Listo. Completé “${result.text}” y lo dejé programado nuevamente para ${formatReminderDate(result.nextDueDate, result.dueTime, result.recurrenceLabel)}.`
+          : `Marcado como completado: “${result.text}”.`
       }
     ]);
   }
 
   function deleteReminder(id) {
-    const reminder = reminders.find((item) => item.id === id);
-    setReminders((current) => current.filter((item) => item.id !== id));
-    if (reminder) {
+    const deleted = onDelete(id);
+    if (deleted) {
       setMessages((current) => [
         ...current,
-        { id: `bot-del-${Date.now()}`, role: 'bot', text: `Eliminé el recordatorio: “${reminder.text}”.` }
+        { id: `bot-del-${Date.now()}`, role: 'bot', text: `Eliminé el recordatorio: “${deleted.text}”.` }
       ]);
     }
   }
@@ -707,6 +686,7 @@ function ReminderAssistant() {
           <div className="assistant-summary">
             <span>{pendingReminders.length} pendiente(s)</span>
             {todayCount > 0 ? <strong>{todayCount} para hoy</strong> : <strong>Sin urgentes</strong>}
+            {pendingRemoteCount > 0 ? <small title="Recordatorios pendientes de sincronizar con Google Sheets">{syncing ? 'Sincronizando' : `${pendingRemoteCount} por sincronizar`}</small> : <small>En Sheets</small>}
           </div>
 
           <div className="assistant-messages" ref={listRef}>
@@ -731,7 +711,8 @@ function ReminderAssistant() {
               <article key={item.id} className="assistant-reminder-card">
                 <div>
                   <strong>{item.text}</strong>
-                  <span>{formatReminderDate(item.dueDate, item.dueTime, item.recurrenceLabel)}</span>
+                  <span>{formatReminderDate(item.dueDate, item.dueTime, item.recurrenceLabel)} · <SyncPill row={item} /></span>
+                  {item.syncError ? <small className="danger-text">{item.syncError}</small> : null}
                 </div>
                 <div className="assistant-reminder-actions">
                   <button type="button" onClick={() => completeReminder(item.id)}>✓</button>
@@ -745,7 +726,7 @@ function ReminderAssistant() {
               <article key={item.id} className="assistant-reminder-card done">
                 <div>
                   <strong>{item.text}</strong>
-                  <span>Completado</span>
+                  <span>Completado · <SyncPill row={item} /></span>
                 </div>
                 <button type="button" className="danger-mini" onClick={() => deleteReminder(item.id)}>×</button>
               </article>
@@ -1373,10 +1354,15 @@ function normalizeLoadedData(data = {}) {
     };
   });
 
+  const reminderRows = (data.reminders || [])
+    .map(normalizeReminderData)
+    .filter((row) => row.text.trim() && row.status !== 'deleted');
+
   return {
     config: safeConfig,
     mile: mileRows,
-    rafa: rafaRows
+    rafa: rafaRows,
+    reminders: reminderRows
   };
 }
 
@@ -1386,6 +1372,7 @@ export default function App() {
   const [config, setConfig] = useState({ categorias: [], tiposMovimiento: [], subcategorias: [] });
   const [mile, setMile] = useState([]);
   const [rafa, setRafa] = useState([]);
+  const [reminders, setReminders] = useState(() => readStoredReminders());
   const [demoMode, setDemoMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving] = useState(false);
@@ -1398,6 +1385,7 @@ export default function App() {
 
   const mileRef = useRef(mile);
   const rafaRef = useRef(rafa);
+  const remindersRef = useRef(reminders);
   const configRef = useRef(config);
   const queueRef = useRef(syncQueue);
   const idMapRef = useRef(getIdMap());
@@ -1409,6 +1397,8 @@ export default function App() {
 
   useEffect(() => { mileRef.current = mile; }, [mile]);
   useEffect(() => { rafaRef.current = rafa; }, [rafa]);
+  useEffect(() => { remindersRef.current = reminders; }, [reminders]);
+  useEffect(() => { saveStoredReminders(reminders); }, [reminders]);
   useEffect(() => { configRef.current = config; }, [config]);
   useEffect(() => { queueRef.current = syncQueue; }, [syncQueue]);
 
@@ -1419,10 +1409,10 @@ export default function App() {
   }, [notice]);
 
   useEffect(() => {
-    if (config.categorias.length || config.tiposMovimiento.length || config.subcategorias.length || mile.length || rafa.length) {
-      saveWorkingSnapshot({ config, mile, rafa });
+    if (config.categorias.length || config.tiposMovimiento.length || config.subcategorias.length || mile.length || rafa.length || reminders.length) {
+      saveWorkingSnapshot({ config, mile, rafa, reminders });
     }
-  }, [config, mile, rafa]);
+  }, [config, mile, rafa, reminders]);
 
   function setSyncQueue(nextQueue) {
     const cleanQueue = Array.isArray(nextQueue) ? nextQueue.filter((item) => item.status !== 'done') : [];
@@ -1464,19 +1454,21 @@ export default function App() {
       );
       setMile(mergeRows(normalized.mile, localNormalized.mile));
       setRafa(mergeRows(normalized.rafa, localNormalized.rafa));
+      setReminders(mergeRows(normalized.reminders || [], localNormalized.reminders || []));
       return;
     }
 
     setConfig(normalized.config);
     setMile(normalized.mile);
     setRafa(normalized.rafa);
+    setReminders(normalized.reminders || []);
   }
 
   async function loadData(options = {}) {
     const { silent = false, preferCache = true } = options;
     const working = getWorkingSnapshot();
     const cached = getCachedRemoteSnapshot();
-    const hasLocalData = mileRef.current.length > 0 || rafaRef.current.length > 0;
+    const hasLocalData = mileRef.current.length > 0 || rafaRef.current.length > 0 || remindersRef.current.length > 0;
 
     if (!silent) {
       setLoading(true);
@@ -1542,6 +1534,7 @@ export default function App() {
     };
 
     if (operation.entity === 'rafa') setRafa((current) => current.map(updater));
+    else if (operation.entity === 'reminder') setReminders((current) => current.map(updater));
     else setMile((current) => current.map(updater));
   }
 
@@ -1559,6 +1552,16 @@ export default function App() {
 
     if (!normalizedData) {
       markRowsByOperation(operation, 'synced');
+      return;
+    }
+
+    if (operation.entity === 'reminder') {
+      const normalized = normalizeLoadedData({ reminders: [{ ...normalizedData, syncStatus: 'synced', syncError: '' }] }).reminders[0];
+      if (!normalized) return;
+      setReminders((current) => current.map((row) => {
+        const realId = resolveSyncedId(row.id, idMap);
+        return row.id === operation.id || row.id === normalized.id || realId === normalized.id ? normalized : row;
+      }));
       return;
     }
 
@@ -1735,6 +1738,83 @@ export default function App() {
     }));
   }
 
+  function createReminder(parsed) {
+    setError('');
+    setNotice('Recordatorio guardado local');
+    const tempId = createTempId('REM');
+    const localReminder = normalizeReminderData({
+      id: tempId,
+      text: parsed.text,
+      dueDate: parsed.dueDate,
+      dueTime: parsed.dueTime,
+      recurrence: parsed.recurrence,
+      recurrenceLabel: parsed.recurrenceLabel,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      updatedAt: '',
+      completedAt: '',
+      syncStatus: 'pending',
+      syncError: ''
+    });
+
+    setReminders((current) => [localReminder, ...current]);
+    enqueueSyncOperation(createOperation('create', 'reminder', {
+      id: tempId,
+      data: localReminder
+    }));
+    return localReminder;
+  }
+
+  function completeReminder(id) {
+    const reminder = remindersRef.current.find((item) => item.id === id);
+    if (!reminder) return null;
+
+    const completedAt = new Date().toISOString();
+    const nextDueDate = getNextRecurrenceDate(reminder);
+    const updatedReminder = normalizeReminderData(nextDueDate
+      ? {
+          ...reminder,
+          dueDate: nextDueDate,
+          status: 'pending',
+          completedAt: '',
+          lastCompletedAt: completedAt,
+          updatedAt: completedAt,
+          syncStatus: 'pending',
+          syncError: ''
+        }
+      : {
+          ...reminder,
+          status: 'done',
+          completedAt,
+          updatedAt: completedAt,
+          syncStatus: 'pending',
+          syncError: ''
+        }
+    );
+
+    setReminders((current) => current.map((item) => item.id === id ? updatedReminder : item));
+    enqueueSyncOperation(createOperation('update', 'reminder', {
+      id,
+      data: updatedReminder,
+      lastKnownUpdatedAt: reminder.updatedAt || ''
+    }));
+    return { ...updatedReminder, nextDueDate, text: reminder.text };
+  }
+
+  function deleteReminder(id) {
+    const reminder = remindersRef.current.find((item) => item.id === id);
+    if (!reminder) return null;
+
+    setError('');
+    setNotice('Recordatorio borrado local');
+    setReminders((current) => current.filter((item) => item.id !== id));
+    enqueueSyncOperation(createOperation('delete', 'reminder', {
+      id,
+      lastKnownUpdatedAt: reminder.updatedAt || ''
+    }));
+    return reminder;
+  }
+
   function startEdit(row) {
     setEditing(row);
     setActive('nuevo');
@@ -1747,7 +1827,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 3A</small>
+            <small>Milena · Fase 3C</small>
           </div>
         </div>
         <nav>
@@ -1771,7 +1851,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 3B</span>
+          <span className="version" title={APP_VERSION}>Fase 3C</span>
         </header>
 
         <StatusBar
@@ -1780,7 +1860,7 @@ export default function App() {
           error={error}
           notice={notice}
           cachedAt={cachedAt}
-          hasData={mile.length > 0 || rafa.length > 0}
+          hasData={mile.length > 0 || rafa.length > 0 || reminders.length > 0}
           onRefresh={loadData}
           pendingSyncCount={pendingSyncCount}
           failedSyncCount={failedSyncCount}
@@ -1788,13 +1868,13 @@ export default function App() {
           onSyncNow={() => processSyncQueue(true)}
         />
 
-        {loading && mile.length === 0 && rafa.length === 0 ? <div className="panel loading">Cargando información...</div> : null}
+        {loading && mile.length === 0 && rafa.length === 0 && reminders.length === 0 ? <div className="panel loading">Cargando información...</div> : null}
 
-        {(active === 'dashboard' && (!loading || mile.length > 0 || rafa.length > 0)) ? (
+        {(active === 'dashboard' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? (
           <Dashboard mile={mile} rafa={rafa} month={month} setMonth={setMonth} />
         ) : null}
 
-        {(active === 'nuevo' && (!loading || mile.length > 0 || rafa.length > 0)) ? (
+        {(active === 'nuevo' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? (
           <section className="panel">
             <div className="panel-head">
               <div>
@@ -1813,7 +1893,7 @@ export default function App() {
           </section>
         ) : null}
 
-        {(active === 'historial' && (!loading || mile.length > 0 || rafa.length > 0)) ? (
+        {(active === 'historial' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? (
           <History
             rows={mile}
             config={config}
@@ -1822,7 +1902,7 @@ export default function App() {
           />
         ) : null}
 
-        {(active === 'rafa' && (!loading || mile.length > 0 || rafa.length > 0)) ? (
+        {(active === 'rafa' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? (
           <RafaModule
             rows={rafa}
             config={config}
@@ -1832,9 +1912,15 @@ export default function App() {
           />
         ) : null}
 
-        {(active === 'config' && (!loading || mile.length > 0 || rafa.length > 0)) ? <ConfigPanel config={config} /> : null}
+        {(active === 'config' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? <ConfigPanel config={config} /> : null}
       </section>
-      <ReminderAssistant />
+      <ReminderAssistant
+        reminders={reminders}
+        onCreate={createReminder}
+        onComplete={completeReminder}
+        onDelete={deleteReminder}
+        syncing={syncing}
+      />
     </main>
   );
 }

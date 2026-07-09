@@ -2,8 +2,8 @@ import { normalizeText, parseAmount, todayISO } from '../utils/format.js';
 
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || '';
 const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || '';
-const DEMO_KEY = 'control-gastos-milena-demo-v2l-tabla-oficial';
-const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v2l-tabla-oficial';
+const DEMO_KEY = 'control-gastos-milena-demo-v3c-recordatorios';
+const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v3c-recordatorios';
 const PROXY_URL = '/api/sheets';
 const DIRECT_TIMEOUT_MS = 15000;
 
@@ -26,6 +26,26 @@ function normalizeOfficialRow(data = {}) {
     creadoEn: data.creadoEn || data.creado_en || '',
     actualizadoEn: data.actualizadoEn || data.actualizado_en || '',
     estado: data.estado || 'Activo'
+  };
+}
+
+function normalizeReminderRow(data = {}) {
+  const estado = data.estado || data.status || 'pending';
+  const rawText = data.text || data.titulo || data.title || '';
+  return {
+    ...data,
+    id: String(data.id || data.idRecordatorio || data.ID_Recordatorio || '').trim(),
+    text: String(rawText || '').trim(),
+    detail: String(data.detail || data.detalle || '').trim(),
+    dueDate: data.dueDate || data.fecha || '',
+    dueTime: data.dueTime || data.hora || '',
+    recurrence: data.recurrence || data.recurrencia || 'none',
+    recurrenceLabel: data.recurrenceLabel || data.etiquetaRecurrencia || '',
+    status: String(estado).toLowerCase() === 'done' || String(estado).toLowerCase() === 'completado' ? 'done' : String(estado).toLowerCase() === 'deleted' || String(estado).toLowerCase() === 'eliminado' ? 'deleted' : 'pending',
+    createdAt: data.createdAt || data.creadoEn || data.creado_en || '',
+    updatedAt: data.updatedAt || data.actualizadoEn || data.actualizado_en || '',
+    completedAt: data.completedAt || data.completadoEn || data.completado_en || '',
+    lastCompletedAt: data.lastCompletedAt || data.ultimoCompletadoEn || ''
   };
 }
 
@@ -77,6 +97,19 @@ const sampleState = {
       monto: 60000,
       categoria: 'Alimentacion'
     }
+  ],
+  reminders: [
+    normalizeReminderRow({
+      id: 'REM-DEMO-001',
+      text: 'Revisar recordatorios sincronizados',
+      dueDate: todayISO(),
+      dueTime: '09:00',
+      recurrence: 'none',
+      recurrenceLabel: '',
+      status: 'pending',
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    })
   ]
 };
 
@@ -88,7 +121,8 @@ function getDemoState() {
     return {
       ...parsed,
       mile: (parsed.mile || []).map(normalizeOfficialRow),
-      rafa: parsed.rafa || []
+      rafa: parsed.rafa || [],
+      reminders: (parsed.reminders || []).map(normalizeReminderRow)
     };
   } catch {
     return structuredClone(sampleState);
@@ -101,6 +135,12 @@ function saveDemoState(state) {
 
 function nowIso() {
   return new Date().toISOString().slice(0, 19);
+}
+
+function newReminderId() {
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
+  const random = Math.floor(Math.random() * 9000 + 1000);
+  return `REM-${stamp}-${random}`;
 }
 
 function newOfficialId() {
@@ -153,32 +193,37 @@ async function localRequest(action, payload = {}) {
       demo: true,
       data: {
         ...state,
-        mile: (state.mile || []).filter((row) => String(row.estado || 'Activo').toLowerCase() !== 'eliminado')
+        mile: (state.mile || []).filter((row) => String(row.estado || 'Activo').toLowerCase() !== 'eliminado'),
+        reminders: (state.reminders || []).filter((row) => String(row.status || 'pending').toLowerCase() !== 'deleted')
       }
     };
   }
 
   if (action === 'create') {
-    const key = payload.entity === 'rafa' ? 'rafa' : 'mile';
+    const key = payload.entity === 'rafa' ? 'rafa' : payload.entity === 'reminder' ? 'reminders' : 'mile';
     const now = nowIso();
     const rawRow = key === 'mile'
       ? { ...payload.data, id: newOfficialId(), creadoEn: now, actualizadoEn: now, estado: 'Activo' }
-      : { ...payload.data, id: nextId(state[key], 'R') };
-    const row = key === 'mile' ? normalizeOfficialRow(rawRow) : rawRow;
-    state[key] = [row, ...state[key]];
+      : key === 'reminders'
+        ? { ...payload.data, id: newReminderId(), createdAt: now, updatedAt: now, status: payload.data?.status || 'pending' }
+        : { ...payload.data, id: nextId(state[key], 'R') };
+    const row = key === 'mile' ? normalizeOfficialRow(rawRow) : key === 'reminders' ? normalizeReminderRow(rawRow) : rawRow;
+    state[key] = [row, ...(state[key] || [])];
     saveDemoState(state);
     return { ok: true, demo: true, data: row };
   }
 
   if (action === 'update') {
-    const key = payload.entity === 'rafa' ? 'rafa' : 'mile';
+    const key = payload.entity === 'rafa' ? 'rafa' : payload.entity === 'reminder' ? 'reminders' : 'mile';
     let updatedRow = null;
-    state[key] = state[key].map((item) => {
+    state[key] = (state[key] || []).map((item) => {
       if (item.id !== payload.id) return item;
       const updated = key === 'mile'
         ? { ...item, ...payload.data, id: payload.id, actualizadoEn: nowIso(), estado: 'Activo' }
-        : { ...item, ...payload.data, id: payload.id };
-      updatedRow = key === 'mile' ? normalizeOfficialRow(updated) : updated;
+        : key === 'reminders'
+          ? { ...item, ...payload.data, id: payload.id, updatedAt: nowIso() }
+          : { ...item, ...payload.data, id: payload.id };
+      updatedRow = key === 'mile' ? normalizeOfficialRow(updated) : key === 'reminders' ? normalizeReminderRow(updated) : updated;
       return updatedRow;
     });
     saveDemoState(state);
@@ -186,7 +231,7 @@ async function localRequest(action, payload = {}) {
   }
 
   if (action === 'delete') {
-    const key = payload.entity === 'rafa' ? 'rafa' : 'mile';
+    const key = payload.entity === 'rafa' ? 'rafa' : payload.entity === 'reminder' ? 'reminders' : 'mile';
     if (key === 'mile') {
       const now = nowIso();
       state[key] = state[key].map((item) => item.id === payload.id
@@ -196,6 +241,16 @@ async function localRequest(action, payload = {}) {
       saveDemoState(state);
       return { ok: true, demo: true, data: { id: payload.id, estado: 'Eliminado', actualizadoEn: now } };
     }
+    if (key === 'reminders') {
+      const now = nowIso();
+      state[key] = (state[key] || []).map((item) => item.id === payload.id
+        ? { ...item, status: 'deleted', updatedAt: now }
+        : item
+      );
+      saveDemoState(state);
+      return { ok: true, demo: true, data: { id: payload.id, status: 'deleted', updatedAt: now } };
+    }
+
     state[key] = state[key].filter((item) => item.id !== payload.id);
     saveDemoState(state);
     return { ok: true, demo: true, data: { id: payload.id } };

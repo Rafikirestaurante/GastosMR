@@ -1,5 +1,5 @@
 /************************************************************
- * Control Gastos Milena - Fase 2L
+ * Control Gastos Milena - Fase 3C
  * Backend Google Apps Script para Google Sheets.
  *
  * Hoja principal activa: "Tabla Oficial".
@@ -12,6 +12,7 @@
  * ID_Transaccion | Creado_en | Actualizado_en | Estado
  *
  * Fase 2K/2L: sincronización segura para uso simultáneo y compatible con cola local.
+ * Fase 3C: hoja Recordatorios sincronizada con la misma cola local de la app.
  * - ID real por movimiento, sin depender del número de fila.
  * - LockService para crear/editar/borrar sin choques.
  * - Eliminación lógica con Estado = Eliminado.
@@ -30,7 +31,9 @@ const APP_TOKEN = 'cambia-este-token-largo';
 const SHEETS = {
   mile: 'Tabla Oficial',
   rafa: 'Gastos Rafa',
-  config: 'Configuracion'
+  config: 'Configuracion',
+  reminder: 'Recordatorios',
+  reminders: 'Recordatorios'
 };
 
 const HEADERS = {
@@ -55,6 +58,20 @@ const HEADERS = {
     'Concepto',
     'Monto',
     'Categoría'
+  ],
+  reminders: [
+    'ID_Recordatorio',
+    'Titulo',
+    'Detalle',
+    'Fecha',
+    'Hora',
+    'Recurrencia',
+    'Etiqueta_Recurrencia',
+    'Estado',
+    'Creado_en',
+    'Actualizado_en',
+    'Completado_en',
+    'Ultimo_Completado_en'
   ]
 };
 
@@ -81,7 +98,8 @@ function doGet(e) {
         data: {
           config: readConfig_(),
           mile: readRows_('mile'),
-          rafa: readRows_('rafa')
+          rafa: readRows_('rafa'),
+          reminders: readRows_('reminders')
         }
       }, callback);
     }
@@ -150,7 +168,13 @@ function getSpreadsheet_() {
 function getSheet_(entity) {
   const sheetName = SHEETS[entity];
   if (!sheetName) throw new Error('Entidad no válida.');
-  const sheet = getSpreadsheet_().getSheetByName(sheetName);
+  const spreadsheet = getSpreadsheet_();
+  let sheet = spreadsheet.getSheetByName(sheetName);
+  if (!sheet && entity === 'reminders') {
+    sheet = spreadsheet.insertSheet(sheetName);
+    sheet.getRange(1, 1, 1, HEADERS.reminders.length).setValues([HEADERS.reminders]);
+    sheet.setFrozenRows(1);
+  }
   if (!sheet) throw new Error('No existe la hoja: ' + sheetName);
   return sheet;
 }
@@ -198,6 +222,16 @@ function readRows_(entity) {
     } finally {
       lock.releaseLock();
     }
+  }
+
+  if (entity === 'reminders') {
+    ensureReminderSchema_(sheet);
+    const currentLastRow = sheet.getLastRow();
+    if (currentLastRow < 2) return [];
+    const values = sheet.getRange(2, 1, currentLastRow - 1, HEADERS.reminders.length).getValues();
+    return values
+      .map((row) => mapReminderRow_(row))
+      .filter(row => String(row.id || '').trim() !== '' && row.status !== 'deleted');
   }
 
   if (lastRow < 2) return [];
@@ -385,6 +419,56 @@ function mapRafaRow_(row, displayRow) {
   };
 }
 
+function ensureReminderSchema_(sheet) {
+  if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, HEADERS.reminders.length).setValues([HEADERS.reminders]);
+    return;
+  }
+
+  const lastColumn = Math.max(sheet.getLastColumn(), HEADERS.reminders.length);
+  const headerRow = sheet.getRange(1, 1, 1, lastColumn).getDisplayValues()[0];
+  const isBlank = headerRow.every(value => String(value || '').trim() === '');
+  if (isBlank) {
+    sheet.getRange(1, 1, 1, HEADERS.reminders.length).setValues([HEADERS.reminders]);
+    return;
+  }
+
+  const missing = HEADERS.reminders.filter(header => findHeaderIndex_(headerRow, [header], -1) === -1);
+  if (missing.length) {
+    sheet.getRange(1, lastColumn + 1, 1, missing.length).setValues([missing]);
+  }
+}
+
+function mapReminderRow_(row) {
+  const statusRaw = normalizeText_(row[7] || 'pending');
+  const status = statusRaw === 'completado' || statusRaw === 'done' ? 'done' : statusRaw === 'eliminado' || statusRaw === 'deleted' ? 'deleted' : 'pending';
+  return {
+    id: String(row[0] || '').trim(),
+    text: String(row[1] || '').trim(),
+    detail: String(row[2] || '').trim(),
+    dueDate: formatDate_(row[3], row[3]),
+    dueTime: formatTime_(row[4]),
+    recurrence: String(row[5] || 'none').trim() || 'none',
+    recurrenceLabel: String(row[6] || '').trim(),
+    status: status,
+    createdAt: String(row[8] || '').trim(),
+    updatedAt: String(row[9] || '').trim(),
+    completedAt: String(row[10] || '').trim(),
+    lastCompletedAt: String(row[11] || '').trim()
+  };
+}
+
+function formatTime_(value) {
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'HH:mm');
+  }
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return text;
+  return String(match[1]).padStart(2, '0') + ':' + match[2];
+}
+
+
 function formatDate_(value, displayValue) {
   if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)) {
     return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
@@ -488,7 +572,7 @@ function nowIso_() {
 }
 
 function createRow_(entity, data) {
-  if (entity !== 'mile' && entity !== 'rafa') throw new Error('Entidad no válida.');
+  if (entity !== 'mile' && entity !== 'rafa' && entity !== 'reminder') throw new Error('Entidad no válida.');
   validateRequired_(entity, data);
 
   const lock = LockService.getScriptLock();
@@ -496,6 +580,28 @@ function createRow_(entity, data) {
 
   try {
     const sheet = getSheet_(entity);
+    if (entity === 'reminder') {
+      ensureReminderSchema_(sheet);
+      const id = generateId_(entity, sheet);
+      const now = nowIso_();
+      const row = [
+        id,
+        data.text || data.titulo || '',
+        data.detail || data.detalle || '',
+        data.dueDate ? parseDate_(data.dueDate) : '',
+        data.dueTime || '',
+        data.recurrence || 'none',
+        data.recurrenceLabel || '',
+        data.status === 'done' ? 'Completado' : 'Pendiente',
+        data.createdAt || now,
+        now,
+        data.completedAt || '',
+        data.lastCompletedAt || ''
+      ];
+      sheet.appendRow(row);
+      return mapReminderRow_(row);
+    }
+
     if (entity === 'mile') {
       const indexes = ensureOfficialSchema_(sheet);
       const amounts = officialAmounts_(data);
@@ -538,7 +644,7 @@ function createRow_(entity, data) {
 }
 
 function updateRow_(entity, id, data, lastKnownUpdatedAt) {
-  if (entity !== 'mile' && entity !== 'rafa') throw new Error('Entidad no válida.');
+  if (entity !== 'mile' && entity !== 'rafa' && entity !== 'reminder') throw new Error('Entidad no válida.');
   if (!id) throw new Error('Falta ID para actualizar.');
   validateRequired_(entity, data);
 
@@ -547,6 +653,29 @@ function updateRow_(entity, id, data, lastKnownUpdatedAt) {
 
   try {
     const sheet = getSheet_(entity);
+
+    if (entity === 'reminder') {
+      ensureReminderSchema_(sheet);
+      const rowNumber = findRowById_(entity, sheet, id);
+      if (!rowNumber) throw new Error('No se encontró el recordatorio: ' + id);
+      const now = nowIso_();
+      const row = [
+        id,
+        data.text || data.titulo || '',
+        data.detail || data.detalle || '',
+        data.dueDate ? parseDate_(data.dueDate) : '',
+        data.dueTime || '',
+        data.recurrence || 'none',
+        data.recurrenceLabel || '',
+        data.status === 'done' ? 'Completado' : 'Pendiente',
+        data.createdAt || '',
+        now,
+        data.completedAt || '',
+        data.lastCompletedAt || ''
+      ];
+      sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
+      return mapReminderRow_(row);
+    }
 
     if (entity === 'mile') {
       const indexes = ensureOfficialSchema_(sheet);
@@ -595,7 +724,7 @@ function updateRow_(entity, id, data, lastKnownUpdatedAt) {
 }
 
 function deleteRow_(entity, id, lastKnownUpdatedAt) {
-  if (entity !== 'mile' && entity !== 'rafa') throw new Error('Entidad no válida.');
+  if (entity !== 'mile' && entity !== 'rafa' && entity !== 'reminder') throw new Error('Entidad no válida.');
   if (!id) throw new Error('Falta ID para borrar.');
 
   const lock = LockService.getScriptLock();
@@ -603,6 +732,16 @@ function deleteRow_(entity, id, lastKnownUpdatedAt) {
 
   try {
     const sheet = getSheet_(entity);
+
+    if (entity === 'reminder') {
+      ensureReminderSchema_(sheet);
+      const rowNumber = findRowById_(entity, sheet, id);
+      if (!rowNumber) throw new Error('No se encontró el recordatorio: ' + id);
+      const now = nowIso_();
+      sheet.getRange(rowNumber, 8).setValue('Eliminado');
+      sheet.getRange(rowNumber, 10).setValue(now);
+      return { id: id, status: 'deleted', updatedAt: now };
+    }
 
     if (entity === 'mile') {
       const indexes = ensureOfficialSchema_(sheet);
@@ -639,7 +778,9 @@ function assertNotChanged_(sheet, rowNumber, indexes, lastKnownUpdatedAt) {
 function validateRequired_(entity, data) {
   const fields = entity === 'mile'
     ? ['fecha', 'proveedor', 'concepto']
-    : ['fecha', 'concepto', 'monto', 'categoria'];
+    : entity === 'reminder'
+      ? ['text']
+      : ['fecha', 'concepto', 'monto', 'categoria'];
 
   const missing = fields.filter(field => data[field] === undefined || data[field] === null || String(data[field]).trim() === '');
   if (missing.length) {
@@ -648,6 +789,10 @@ function validateRequired_(entity, data) {
 
   if (entity === 'mile') {
     officialAmounts_(data);
+    return;
+  }
+
+  if (entity === 'reminder') {
     return;
   }
 
@@ -703,7 +848,7 @@ function generateUniqueOfficialId_(existingIds) {
 }
 
 function generateId_(entity, sheet) {
-  const prefix = entity === 'mile' ? 'TO' : 'R';
+  const prefix = entity === 'mile' ? 'TO' : entity === 'reminder' ? 'REM' : 'R';
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return prefix + '001';
 

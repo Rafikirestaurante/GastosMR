@@ -1536,6 +1536,19 @@ select {
   background: var(--panel-strong);
 }
 
+.assistant-summary small {
+  padding: 0.22rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.danger-text {
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .assistant-messages {
   padding: 0.95rem 1rem;
   overflow: auto;

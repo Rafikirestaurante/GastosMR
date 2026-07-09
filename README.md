@@ -1,4 +1,4 @@
-# Control Gastos Milena — Fase 3B
+# Control Gastos Milena — Fase 3C
 
 Aplicación web sencilla para controlar los gastos de Milena usando React + Vite, Vercel y Google Sheets mediante Google Apps Script.
 
@@ -24,9 +24,9 @@ ID_Transaccion | Creado_en | Actualizado_en | Estado
 
 Estas columnas técnicas permiten editar, borrar y sincronizar de forma más segura sin depender del número de fila.
 
-## Fase 3B - Asistente interno con fechas inteligentes
+## Fase 3C - Recordatorios sincronizados con Google Sheets
 
-Esta fase mejora el chatbot interno de recordatorios generales para interpretar fechas de forma más natural, especialmente como se escriben en Colombia.
+Esta fase conecta el asistente interno de recordatorios generales con Google Sheets, manteniendo el guardado local rápido como respaldo.
 
 Incluye:
 
@@ -37,9 +37,11 @@ Incluye:
 - Fechas naturales: `hoy`, `mañana`, `pasado mañana`, `el próximo lunes`, `en 8 días`, `el 15 de julio`, `fin de mes`, `fin de semana`, `quincena`.
 - Momentos del día: `en la mañana`, `en la tarde`, `en la noche`, `al mediodía` y horas como `a las 3 pm`.
 - Repeticiones básicas: `cada día`, `cada semana`, `cada mes` y `cada año`.
-- Lista de recordatorios pendientes.
+- Lista de recordatorios pendientes y completados recientes.
 - Opción para marcar como completado o eliminar.
-- Guardado local en el dispositivo mediante `localStorage`.
+- Guardado local inmediato en el dispositivo.
+- Sincronización en segundo plano con Google Sheets usando la misma cola local de gastos.
+- Si un recordatorio recurrente se completa, se reprograma automáticamente para la siguiente fecha.
 
 Ejemplos de uso:
 
@@ -52,11 +54,29 @@ Recordar enviar soporte el 15 de julio
 Recordar comprar mercado en 8 días
 ```
 
-En esta versión los recordatorios siguen siendo locales al dispositivo. La sincronización con Google Sheets queda como siguiente subfase cuando el flujo inteligente quede aprobado.
+## Hoja nueva: Recordatorios
+
+Apps Script crea automáticamente la hoja si no existe:
+
+```txt
+Recordatorios
+```
+
+Columnas esperadas:
+
+```txt
+ID_Recordatorio | Titulo | Detalle | Fecha | Hora | Recurrencia | Etiqueta_Recurrencia | Estado | Creado_en | Actualizado_en | Completado_en | Ultimo_Completado_en
+```
+
+Estados usados:
+
+```txt
+Pendiente | Completado | Eliminado
+```
 
 ## Fase 2M - Guardado rápido local
 
-En esta fase la app guarda visualmente de inmediato en el dispositivo y sincroniza después con Google Sheets.
+La app guarda visualmente de inmediato en el dispositivo y sincroniza después con Google Sheets.
 
 Flujo:
 
@@ -84,6 +104,11 @@ Campos obligatorios desde la app: Fecha, Proveedor, Concepto, Tipo de movimiento
 
 | Categoria | Tipo de Movimiento | Subcategoria |
 |---|---|---|
+
+### Recordatorios
+
+| ID_Recordatorio | Titulo | Detalle | Fecha | Hora | Recurrencia | Etiqueta_Recurrencia | Estado | Creado_en | Actualizado_en | Completado_en | Ultimo_Completado_en |
+|---|---|---|---|---|---|---|---|---|---|---|---|
 
 ## Configurar Apps Script
 
