@@ -1,5 +1,5 @@
 /************************************************************
- * Control Gastos Milena - Fase 2K
+ * Control Gastos Milena - Fase 2L
  * Backend Google Apps Script para Google Sheets.
  *
  * Hoja principal activa: "Tabla Oficial".
@@ -11,7 +11,7 @@
  * Columnas técnicas agregadas automáticamente al final:
  * ID_Transaccion | Creado_en | Actualizado_en | Estado
  *
- * Fase 2K: sincronización segura para uso simultáneo.
+ * Fase 2K/2L: sincronización segura para uso simultáneo y compatible con cola local.
  * - ID real por movimiento, sin depender del número de fila.
  * - LockService para crear/editar/borrar sin choques.
  * - Eliminación lógica con Estado = Eliminado.

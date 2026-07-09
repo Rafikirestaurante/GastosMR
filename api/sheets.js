@@ -68,7 +68,7 @@ export default async function handler(req, res) {
       signal: controller.signal,
       headers: {
         'Accept': 'application/json,text/plain,*/*',
-        'User-Agent': 'Control-Gastos-Milena/2K'
+        'User-Agent': 'Control-Gastos-Milena/2L'
       }
     });
 

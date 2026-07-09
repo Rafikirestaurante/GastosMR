@@ -2,8 +2,8 @@ import { normalizeText, parseAmount, todayISO } from '../utils/format.js';
 
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || '';
 const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || '';
-const DEMO_KEY = 'control-gastos-milena-demo-v2k-tabla-oficial';
-const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v2k-tabla-oficial';
+const DEMO_KEY = 'control-gastos-milena-demo-v2l-tabla-oficial';
+const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v2l-tabla-oficial';
 const PROXY_URL = '/api/sheets';
 const DIRECT_TIMEOUT_MS = 15000;
 

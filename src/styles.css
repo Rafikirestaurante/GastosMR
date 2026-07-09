@@ -1284,3 +1284,62 @@ select {
     min-width: 96px;
   }
 }
+
+/* Fase 2L: guardado local rápido y sincronización en segundo plano */
+.sync-now-button {
+  background: #fbf4ec;
+  color: var(--primary-dark);
+  border: 1px solid var(--border);
+}
+
+.sync-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 74px;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1.1;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  background: #eef4ff;
+  color: #1d4ed8;
+}
+
+.sync-pill.synced,
+.sync-pill.undefined {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: #b7e2bd;
+}
+
+.sync-pill.pending {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border-color: #f5d184;
+}
+
+.sync-pill.syncing {
+  background: #eef4ff;
+  color: #1d4ed8;
+  border-color: #bfd7ff;
+}
+
+.sync-pill.failed {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: #f4b5af;
+}
+
+@media (max-width: 720px) {
+  .status-actions {
+    grid-template-columns: 1fr auto;
+  }
+
+  .status-actions .sync-now-button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}

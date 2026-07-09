@@ -1,5 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getCachedRemoteSnapshot, sheetsRequest } from './api/sheetsApi.js';
+import {
+  createOperation,
+  createTempId,
+  getIdMap,
+  getSyncQueue,
+  getWorkingSnapshot,
+  saveIdMap,
+  saveSyncQueue,
+  saveWorkingSnapshot,
+  resolveSyncedId
+} from './api/syncQueue.js';
 import {
   currentMonthKey,
   getMonthBounds,
@@ -30,7 +41,8 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 2K';
+const APP_VERSION = 'Fase 2L';
+const SYNC_DELAY_MS = 2500;
 
 function reloadApp() {
   const url = new URL(window.location.href);
@@ -107,7 +119,7 @@ function Card({ title, value, detail }) {
   );
 }
 
-function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefresh }) {
+function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefresh, pendingSyncCount, failedSyncCount, syncing, onSyncNow }) {
   let connectionBanner = null;
 
   if (loading && hasData && cachedAt) {
@@ -136,6 +148,15 @@ function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefr
     <div className="status-wrap">
       {connectionBanner}
       {notice && !error ? <div className="banner success">{notice}</div> : null}
+      {pendingSyncCount > 0 ? (
+        <div className={`banner ${failedSyncCount > 0 ? 'danger' : syncing ? 'info' : 'warning'}`}>
+          {syncing
+            ? `Sincronizando ${pendingSyncCount} cambio(s) pendiente(s) con Google Sheets...`
+            : failedSyncCount > 0
+              ? `${failedSyncCount} cambio(s) no se pudieron sincronizar. Puedes tocar “Sincronizar ahora”.`
+              : `${pendingSyncCount} cambio(s) guardado(s) en este dispositivo y pendiente(s) por subir a Google Sheets.`}
+        </div>
+      ) : null}
       {error && !hasData ? (
         <div className="connection-help">
           <strong>No se pudieron cargar los datos en este dispositivo.</strong>
@@ -147,6 +168,11 @@ function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefr
         <button className="secondary" type="button" onClick={onRefresh} disabled={loading}>
           {loading ? 'Actualizando...' : 'Actualizar datos'}
         </button>
+        {pendingSyncCount > 0 ? (
+          <button className="secondary sync-now-button" type="button" onClick={onSyncNow} disabled={syncing}>
+            {syncing ? 'Sincronizando...' : 'Sincronizar ahora'}
+          </button>
+        ) : null}
         <button className="icon-button" type="button" onClick={reloadApp} title="Recargar app" aria-label="Recargar app">
           ↻
         </button>
@@ -193,6 +219,26 @@ function getDashboardCellClass(columnKey) {
   if (columnKey === 'egreso') return 'expense-cell amount-cell';
   if (columnKey === 'saldoAcumulado') return 'balance-cell amount-cell';
   return '';
+}
+
+function getSyncLabel(row) {
+  if (row?.syncStatus === 'failed') return 'Error';
+  if (row?.syncStatus === 'syncing') return 'Sincronizando';
+  if (row?.syncStatus === 'pending') return 'Pendiente';
+  return 'OK';
+}
+
+function SyncPill({ row }) {
+  const label = getSyncLabel(row);
+  return <span className={`sync-pill ${String(row?.syncStatus || 'synced')}`}>{label}</span>;
+}
+
+function markPending(row, status = 'pending') {
+  return {
+    ...row,
+    syncStatus: status,
+    syncError: status === 'failed' ? row.syncError : ''
+  };
 }
 
 function Dashboard({ mile, rafa, month, setMonth }) {
@@ -578,6 +624,8 @@ function History({ rows, config, onEdit, onDelete }) {
               <span><b>Egreso:</b> {money(getEgreso(row))}</span>
               <span><b>Categoría:</b> {row.categoria || 'Sin categoría'}</span>
               <span><b>Subcategoría:</b> {row.subcategoria || 'Sin subcategoría'}</span>
+              <span><b>Sincronización:</b> <SyncPill row={row} /></span>
+              {row.syncError ? <span><b>Error:</b> {row.syncError}</span> : null}
             </div>
             <div className="row-actions mobile-actions">
               <button className="small" type="button" onClick={() => onEdit(row)}>Editar</button>
@@ -600,6 +648,7 @@ function History({ rows, config, onEdit, onDelete }) {
               <th>Egreso</th>
               <th>Categoría</th>
               <th>Subcategoría</th>
+              <th>Sync</th>
               <th>Acciones</th>
             </tr>
           </thead>
@@ -614,6 +663,7 @@ function History({ rows, config, onEdit, onDelete }) {
                 <td className="expense-cell">{getEgreso(row) > 0 ? money(getEgreso(row)) : '-'}</td>
                 <td>{row.categoria || '-'}</td>
                 <td>{row.subcategoria || '-'}</td>
+                <td><SyncPill row={row} /></td>
                 <td className="row-actions">
                   <button className="small" type="button" onClick={() => onEdit(row)}>Editar</button>
                   <button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button>
@@ -621,7 +671,7 @@ function History({ rows, config, onEdit, onDelete }) {
               </tr>
             ))}
             {filtered.length === 0 ? (
-              <tr><td colSpan="9" className="empty">No hay registros con esos filtros.</td></tr>
+              <tr><td colSpan="10" className="empty">No hay registros con esos filtros.</td></tr>
             ) : null}
           </tbody>
         </table>
@@ -698,6 +748,8 @@ function RafaModule({ rows, config, onCreate, onDelete, saving }) {
             </div>
             <div className="mobile-record-meta">
               <span><b>Categoría:</b> {row.categoria}</span>
+              <span><b>Sincronización:</b> <SyncPill row={row} /></span>
+              {row.syncError ? <span><b>Error:</b> {row.syncError}</span> : null}
             </div>
             <div className="row-actions mobile-actions">
               <button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button>
@@ -716,6 +768,7 @@ function RafaModule({ rows, config, onCreate, onDelete, saving }) {
               <th>Concepto</th>
               <th>Monto</th>
               <th>Categoría</th>
+              <th>Sync</th>
               <th>Acciones</th>
             </tr>
           </thead>
@@ -727,6 +780,7 @@ function RafaModule({ rows, config, onCreate, onDelete, saving }) {
                 <td>{row.concepto}</td>
                 <td>{money(row.monto)}</td>
                 <td>{row.categoria}</td>
+                <td><SyncPill row={row} /></td>
                 <td><button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button></td>
               </tr>
             ))}
@@ -813,14 +867,79 @@ export default function App() {
   const [rafa, setRafa] = useState([]);
   const [demoMode, setDemoMode] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [saving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [cachedAt, setCachedAt] = useState('');
   const [editing, setEditing] = useState(null);
+  const [syncQueue, setSyncQueueState] = useState(() => getSyncQueue());
+  const [syncing, setSyncing] = useState(false);
 
-  function applyLoadedData(data) {
+  const mileRef = useRef(mile);
+  const rafaRef = useRef(rafa);
+  const configRef = useRef(config);
+  const queueRef = useRef(syncQueue);
+  const idMapRef = useRef(getIdMap());
+  const syncTimerRef = useRef(null);
+  const syncingRef = useRef(false);
+
+  const pendingSyncCount = syncQueue.filter((item) => item.status !== 'done').length;
+  const failedSyncCount = syncQueue.filter((item) => item.status === 'failed').length;
+
+  useEffect(() => { mileRef.current = mile; }, [mile]);
+  useEffect(() => { rafaRef.current = rafa; }, [rafa]);
+  useEffect(() => { configRef.current = config; }, [config]);
+  useEffect(() => { queueRef.current = syncQueue; }, [syncQueue]);
+
+  useEffect(() => {
+    if (config.categorias.length || config.tiposMovimiento.length || config.subcategorias.length || mile.length || rafa.length) {
+      saveWorkingSnapshot({ config, mile, rafa });
+    }
+  }, [config, mile, rafa]);
+
+  function setSyncQueue(nextQueue) {
+    const cleanQueue = Array.isArray(nextQueue) ? nextQueue.filter((item) => item.status !== 'done') : [];
+    queueRef.current = cleanQueue;
+    saveSyncQueue(cleanQueue);
+    setSyncQueueState(cleanQueue);
+  }
+
+  function updateSyncQueue(updater) {
+    const nextQueue = typeof updater === 'function' ? updater(queueRef.current) : updater;
+    setSyncQueue(nextQueue);
+  }
+
+  function applyLoadedData(data, options = {}) {
+    const { keepPendingLocal = true } = options;
     const normalized = normalizeLoadedData(data);
+    const localSnapshot = getWorkingSnapshot()?.data;
+    const localNormalized = localSnapshot ? normalizeLoadedData(localSnapshot) : null;
+    const hasPending = queueRef.current.some((item) => item.status !== 'done');
+
+    if (keepPendingLocal && hasPending && localNormalized) {
+      const mergeRows = (remoteRows, localRows) => {
+        const result = [...remoteRows];
+        localRows
+          .filter((row) => ['pending', 'syncing', 'failed'].includes(row.syncStatus))
+          .forEach((localRow) => {
+            const realId = resolveSyncedId(localRow.id, idMapRef.current);
+            const existingIndex = result.findIndex((row) => row.id === localRow.id || row.id === realId);
+            const rowToKeep = { ...localRow, id: existingIndex >= 0 ? result[existingIndex].id : localRow.id };
+            if (existingIndex >= 0) result[existingIndex] = rowToKeep;
+            else result.unshift(rowToKeep);
+          });
+        return result;
+      };
+
+      setConfig(normalized.config.categorias.length || normalized.config.tiposMovimiento.length || normalized.config.subcategorias.length
+        ? normalized.config
+        : localNormalized.config
+      );
+      setMile(mergeRows(normalized.mile, localNormalized.mile));
+      setRafa(mergeRows(normalized.rafa, localNormalized.rafa));
+      return;
+    }
+
     setConfig(normalized.config);
     setMile(normalized.mile);
     setRafa(normalized.rafa);
@@ -828,13 +947,19 @@ export default function App() {
 
   async function loadData(options = {}) {
     const { silent = false, preferCache = true } = options;
+    const working = getWorkingSnapshot();
     const cached = getCachedRemoteSnapshot();
+    const hasLocalData = mileRef.current.length > 0 || rafaRef.current.length > 0;
 
     if (!silent) {
       setLoading(true);
       setError('');
-      if (preferCache && cached?.data && mile.length === 0 && rafa.length === 0) {
-        applyLoadedData(cached.data);
+      if (preferCache && working?.data && !hasLocalData) {
+        applyLoadedData(working.data, { keepPendingLocal: true });
+        setDemoMode(false);
+        setCachedAt(working.savedAt || 'copia local');
+      } else if (preferCache && cached?.data && !hasLocalData) {
+        applyLoadedData(cached.data, { keepPendingLocal: true });
         setDemoMode(false);
         setCachedAt(cached.savedAt || 'copia local');
       } else {
@@ -844,14 +969,18 @@ export default function App() {
 
     try {
       const response = await sheetsRequest('bootstrap');
-      applyLoadedData(response.data);
+      applyLoadedData(response.data, { keepPendingLocal: true });
       setDemoMode(Boolean(response.demo));
       setCachedAt('');
       if (!silent) setError('');
     } catch (err) {
       if (!silent) {
-        if (cached?.data && mile.length === 0 && rafa.length === 0) {
-          applyLoadedData(cached.data);
+        if (working?.data && !hasLocalData) {
+          applyLoadedData(working.data, { keepPendingLocal: true });
+          setDemoMode(false);
+          setCachedAt(working.savedAt || 'copia local');
+        } else if (cached?.data && !hasLocalData) {
+          applyLoadedData(cached.data, { keepPendingLocal: true });
           setDemoMode(false);
           setCachedAt(cached.savedAt || 'copia local');
         }
@@ -862,89 +991,221 @@ export default function App() {
     }
   }
 
+  function scheduleSync(delay = SYNC_DELAY_MS) {
+    if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = window.setTimeout(() => {
+      processSyncQueue();
+    }, delay);
+  }
+
+  function enqueueSyncOperation(operation) {
+    updateSyncQueue((current) => [...current, operation]);
+    scheduleSync();
+  }
+
+  function markRowsByOperation(operation, status, syncError = '') {
+    const resolvedId = resolveSyncedId(operation.id, idMapRef.current);
+    const updater = (row) => {
+      if (row.id !== operation.id && row.id !== resolvedId) return row;
+      return {
+        ...row,
+        syncStatus: status,
+        syncError
+      };
+    };
+
+    if (operation.entity === 'rafa') setRafa((current) => current.map(updater));
+    else setMile((current) => current.map(updater));
+  }
+
+  function applySyncedResponse(operation, responseData) {
+    const normalizedData = responseData || null;
+    const idMap = { ...idMapRef.current };
+
+    if (operation.action === 'create' && normalizedData?.id && operation.id && normalizedData.id !== operation.id) {
+      idMap[operation.id] = normalizedData.id;
+      idMapRef.current = idMap;
+      saveIdMap(idMap);
+    }
+
+    if (operation.action === 'delete') return;
+
+    if (!normalizedData) {
+      markRowsByOperation(operation, 'synced');
+      return;
+    }
+
+    if (operation.entity === 'rafa') {
+      const normalized = normalizeLoadedData({ rafa: [{ ...normalizedData, syncStatus: 'synced', syncError: '' }] }).rafa[0];
+      setRafa((current) => current.map((row) => {
+        const realId = resolveSyncedId(row.id, idMap);
+        return row.id === operation.id || row.id === normalized.id || realId === normalized.id ? normalized : row;
+      }));
+      return;
+    }
+
+    const normalized = normalizeLoadedData({ mile: [{ ...normalizedData, syncStatus: 'synced', syncError: '' }] }).mile[0];
+    setMile((current) => current.map((row) => {
+      const realId = resolveSyncedId(row.id, idMap);
+      return row.id === operation.id || row.id === normalized.id || realId === normalized.id ? normalized : row;
+    }));
+  }
+
+  async function processSyncQueue(force = false) {
+    if (syncingRef.current) return;
+    const available = queueRef.current.filter((item) => item.status === 'pending' || item.status === 'failed' || item.status === 'syncing');
+    if (available.length === 0) return;
+
+    syncingRef.current = true;
+    setSyncing(true);
+    setError('');
+
+    try {
+      let workingQueue = [...queueRef.current];
+
+      for (const item of available) {
+        const currentItem = workingQueue.find((op) => op.opId === item.opId);
+        if (!currentItem) continue;
+        if (currentItem.status === 'failed' && !force && currentItem.attempts >= 3) continue;
+
+        workingQueue = workingQueue.map((op) => op.opId === currentItem.opId ? { ...op, status: 'syncing', lastError: '' } : op);
+        setSyncQueue(workingQueue);
+        markRowsByOperation(currentItem, 'syncing');
+
+        try {
+          const resolvedId = resolveSyncedId(currentItem.id, idMapRef.current);
+          const payload = currentItem.action === 'create'
+            ? { entity: currentItem.entity, data: currentItem.data }
+            : {
+                entity: currentItem.entity,
+                id: resolvedId,
+                data: currentItem.data || undefined,
+                lastKnownUpdatedAt: currentItem.lastKnownUpdatedAt || ''
+              };
+
+          const response = await sheetsRequest(currentItem.action, payload);
+          applySyncedResponse({ ...currentItem, id: resolvedId }, response?.data);
+          workingQueue = workingQueue.filter((op) => op.opId !== currentItem.opId);
+          setSyncQueue(workingQueue);
+          setNotice('Cambios sincronizados correctamente.');
+        } catch (err) {
+          const message = err.message || 'No se pudo sincronizar este cambio.';
+          workingQueue = workingQueue.map((op) => op.opId === currentItem.opId
+            ? {
+                ...op,
+                status: 'failed',
+                attempts: (op.attempts || 0) + 1,
+                lastError: message,
+                lastTriedAt: new Date().toISOString()
+              }
+            : op
+          );
+          setSyncQueue(workingQueue);
+          markRowsByOperation(currentItem, 'failed', message);
+          setError('Hay cambios pendientes que no pudieron sincronizarse. Toca “Sincronizar ahora” para reintentar.');
+          if (!force) break;
+        }
+      }
+
+      if (workingQueue.length === 0) {
+        await loadData({ silent: true, preferCache: false });
+      }
+    } finally {
+      syncingRef.current = false;
+      setSyncing(false);
+    }
+  }
+
   useEffect(() => {
     loadData();
+    if (queueRef.current.length > 0) scheduleSync(1200);
+
+    const onOnline = () => processSyncQueue(true);
+    window.addEventListener('online', onOnline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
+    };
   }, []);
 
-  async function saveMile(data) {
-    try {
-      setSaving(true);
-      setError('');
-      setNotice('');
-      if (editing) {
-        const response = await sheetsRequest('update', {
-          entity: 'mile',
-          id: editing.id,
-          data,
-          lastKnownUpdatedAt: editing.actualizadoEn || ''
-        });
-        const updatedSource = response?.data || { ...editing, ...data, id: editing.id };
-        const updated = normalizeLoadedData({ mile: [updatedSource] }).mile[0];
-        setMile((current) => current.map((row) => row.id === editing.id ? updated : row));
-        setNotice('Movimiento actualizado correctamente.');
-      } else {
-        const response = await sheetsRequest('create', { entity: 'mile', data });
-        if (response?.data) {
-          const created = normalizeLoadedData({ mile: [response.data] }).mile[0];
-          setMile((current) => [created, ...current]);
-        }
-        setNotice('Movimiento guardado correctamente.');
-      }
-      setEditing(null);
-      setActive('historial');
-      loadData({ silent: true });
-    } catch (err) {
-      setError(err.message || 'No se pudo guardar el movimiento.');
-    } finally {
-      setSaving(false);
+  function saveMile(data) {
+    setError('');
+    setNotice('Movimiento guardado en este dispositivo. Sincronizando con Google Sheets...');
+
+    if (editing) {
+      const updatedSource = { ...editing, ...data, id: editing.id, syncStatus: 'pending', syncError: '' };
+      const updated = normalizeLoadedData({ mile: [updatedSource] }).mile[0];
+      setMile((current) => current.map((row) => row.id === editing.id ? updated : row));
+      enqueueSyncOperation(createOperation('update', 'mile', {
+        id: editing.id,
+        data,
+        lastKnownUpdatedAt: editing.actualizadoEn || ''
+      }));
+    } else {
+      const tempId = createTempId('TO');
+      const localCreated = normalizeLoadedData({
+        mile: [{
+          ...data,
+          id: tempId,
+          creadoEn: new Date().toISOString().slice(0, 19),
+          actualizadoEn: '',
+          estado: 'Activo',
+          syncStatus: 'pending',
+          syncError: ''
+        }]
+      }).mile[0];
+      setMile((current) => [localCreated, ...current]);
+      enqueueSyncOperation(createOperation('create', 'mile', {
+        id: tempId,
+        data
+      }));
     }
+
+    setEditing(null);
+    setActive('historial');
   }
 
-  async function createRafa(data) {
-    try {
-      setSaving(true);
-      setError('');
-      const response = await sheetsRequest('create', { entity: 'rafa', data });
-      if (response?.data) {
-        const created = normalizeLoadedData({ rafa: [response.data] }).rafa[0];
-        setRafa((current) => [created, ...current]);
-      }
-      setNotice('Gasto de Rafa guardado correctamente.');
-      loadData({ silent: true });
-    } catch (err) {
-      setError(err.message || 'No se pudo guardar el gasto de Rafa.');
-    } finally {
-      setSaving(false);
-    }
+  function createRafa(data) {
+    setError('');
+    setNotice('Gasto de Rafa guardado en este dispositivo. Sincronizando con Google Sheets...');
+    const tempId = createTempId('R');
+    const localCreated = normalizeLoadedData({
+      rafa: [{
+        ...data,
+        id: tempId,
+        syncStatus: 'pending',
+        syncError: ''
+      }]
+    }).rafa[0];
+
+    setRafa((current) => [localCreated, ...current]);
+    enqueueSyncOperation(createOperation('create', 'rafa', {
+      id: tempId,
+      data
+    }));
   }
 
-  async function deleteRow(entity, row) {
+  function deleteRow(entity, row) {
     const label = entity === 'rafa' ? 'este gasto de Rafa' : 'este movimiento de la Tabla Oficial';
     const confirmText = entity === 'rafa'
-      ? `¿Seguro que deseas borrar ${label}? Esta acción no se puede deshacer.`
-      : `¿Seguro que deseas borrar ${label}? Se ocultará de la app, pero quedará marcado como Eliminado en Google Sheets.`;
+      ? `¿Seguro que deseas borrar ${label}? Se quitará de la app y luego se sincronizará con Google Sheets.`
+      : `¿Seguro que deseas borrar ${label}? Se quitará de la app y luego quedará marcado como Eliminado en Google Sheets.`;
     const confirmDelete = window.confirm(confirmText);
     if (!confirmDelete) return;
-    try {
-      setSaving(true);
-      setError('');
-      await sheetsRequest('delete', {
-        entity,
-        id: row.id,
-        lastKnownUpdatedAt: row.actualizadoEn || ''
-      });
-      if (entity === 'rafa') {
-        setRafa((current) => current.filter((item) => item.id !== row.id));
-      } else {
-        setMile((current) => current.filter((item) => item.id !== row.id));
-      }
-      setNotice('Registro borrado correctamente.');
-      loadData({ silent: true });
-    } catch (err) {
-      setError(err.message || 'No se pudo borrar el registro.');
-    } finally {
-      setSaving(false);
+
+    setError('');
+    setNotice('Registro borrado en este dispositivo. Sincronizando con Google Sheets...');
+
+    if (entity === 'rafa') {
+      setRafa((current) => current.filter((item) => item.id !== row.id));
+    } else {
+      setMile((current) => current.filter((item) => item.id !== row.id));
     }
+
+    enqueueSyncOperation(createOperation('delete', entity, {
+      id: row.id,
+      lastKnownUpdatedAt: row.actualizadoEn || ''
+    }));
   }
 
   function startEdit(row) {
@@ -959,7 +1220,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 2K</small>
+            <small>Milena · Fase 2L</small>
           </div>
         </div>
         <nav>
@@ -983,7 +1244,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 2K</span>
+          <span className="version" title={APP_VERSION}>Fase 2L</span>
         </header>
 
         <StatusBar
@@ -994,6 +1255,10 @@ export default function App() {
           cachedAt={cachedAt}
           hasData={mile.length > 0 || rafa.length > 0}
           onRefresh={loadData}
+          pendingSyncCount={pendingSyncCount}
+          failedSyncCount={failedSyncCount}
+          syncing={syncing}
+          onSyncNow={() => processSyncQueue(true)}
         />
 
         {loading && mile.length === 0 && rafa.length === 0 ? <div className="panel loading">Cargando información...</div> : null}
