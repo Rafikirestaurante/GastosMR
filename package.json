@@ -1,7 +1,7 @@
 {
   "name": "control-gastos-milena",
   "private": true,
-  "version": "1.0.2-fase-2j",
+  "version": "1.0.2-fase-2k",
   "type": "module",
   "scripts": {
     "dev": "vite",

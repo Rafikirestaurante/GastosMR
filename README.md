@@ -273,6 +273,16 @@ Cambios principales:
 Después de actualizar esta versión, copia nuevamente `apps-script/Code.gs` en Google Apps Script, guarda y vuelve a desplegar la Web App si Google lo solicita.
 
 
-## Fase 2J - Optimización de velocidad
+## Fase 2K - Optimización de velocidad
 
 Se optimizó la apertura y uso general de la app: carga inicial con copia local, sincronización silenciosa después de guardar/editar/borrar, reducción de lecturas en Apps Script y timeout más corto para conexiones lentas. Ver `FASE_2J_NOTAS.md`.
+
+## Fase 2K - Sincronización segura
+
+La app mantiene la rapidez de Fase 2J, pero ahora la Tabla Oficial trabaja con ID real y columnas técnicas al final:
+
+```txt
+ID_Transaccion | Creado_en | Actualizado_en | Estado
+```
+
+Apps Script las agrega automáticamente si no existen. La edición y eliminación de movimientos ya no depende del número de fila. Para movimientos de Tabla Oficial, borrar marca el registro como `Eliminado` en vez de eliminar físicamente la fila.

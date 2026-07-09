@@ -30,7 +30,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 2J';
+const APP_VERSION = 'Fase 2K';
 
 function reloadApp() {
   const url = new URL(window.location.href);
@@ -769,19 +769,24 @@ function ConfigPanel({ config }) {
 
 function normalizeLoadedData(data = {}) {
   const safeConfig = data.config || { categorias: [], tiposMovimiento: [], subcategorias: [] };
-  const mileRows = (data.mile || []).map((row) => {
-    const ingreso = parseAmount(row.ingreso);
-    const egreso = parseAmount(row.egreso);
-    const fechaKey = toDateKey(row.fecha);
-    return {
-      ...row,
-      _ingreso: ingreso,
-      _egreso: egreso,
-      _neto: ingreso - egreso,
-      _fechaKey: fechaKey,
-      _monthKey: fechaKey ? fechaKey.slice(0, 7) : ''
-    };
-  });
+  const mileRows = (data.mile || [])
+    .filter((row) => normalizeText(row.estado || 'Activo') !== 'eliminado')
+    .map((row) => {
+      const ingreso = parseAmount(row.ingreso);
+      const egreso = parseAmount(row.egreso);
+      const fechaKey = toDateKey(row.fecha);
+      return {
+        ...row,
+        estado: row.estado || 'Activo',
+        creadoEn: row.creadoEn || row.creado_en || '',
+        actualizadoEn: row.actualizadoEn || row.actualizado_en || '',
+        _ingreso: ingreso,
+        _egreso: egreso,
+        _neto: ingreso - egreso,
+        _fechaKey: fechaKey,
+        _monthKey: fechaKey ? fechaKey.slice(0, 7) : ''
+      };
+    });
 
   const rafaRows = (data.rafa || []).map((row) => {
     const fechaKey = toDateKey(row.fecha);
@@ -867,8 +872,14 @@ export default function App() {
       setError('');
       setNotice('');
       if (editing) {
-        await sheetsRequest('update', { entity: 'mile', id: editing.id, data });
-        const updated = normalizeLoadedData({ mile: [{ ...editing, ...data, id: editing.id }] }).mile[0];
+        const response = await sheetsRequest('update', {
+          entity: 'mile',
+          id: editing.id,
+          data,
+          lastKnownUpdatedAt: editing.actualizadoEn || ''
+        });
+        const updatedSource = response?.data || { ...editing, ...data, id: editing.id };
+        const updated = normalizeLoadedData({ mile: [updatedSource] }).mile[0];
         setMile((current) => current.map((row) => row.id === editing.id ? updated : row));
         setNotice('Movimiento actualizado correctamente.');
       } else {
@@ -909,12 +920,19 @@ export default function App() {
 
   async function deleteRow(entity, row) {
     const label = entity === 'rafa' ? 'este gasto de Rafa' : 'este movimiento de la Tabla Oficial';
-    const confirmDelete = window.confirm(`¿Seguro que deseas borrar ${label}? Esta acción no se puede deshacer.`);
+    const confirmText = entity === 'rafa'
+      ? `¿Seguro que deseas borrar ${label}? Esta acción no se puede deshacer.`
+      : `¿Seguro que deseas borrar ${label}? Se ocultará de la app, pero quedará marcado como Eliminado en Google Sheets.`;
+    const confirmDelete = window.confirm(confirmText);
     if (!confirmDelete) return;
     try {
       setSaving(true);
       setError('');
-      await sheetsRequest('delete', { entity, id: row.id });
+      await sheetsRequest('delete', {
+        entity,
+        id: row.id,
+        lastKnownUpdatedAt: row.actualizadoEn || ''
+      });
       if (entity === 'rafa') {
         setRafa((current) => current.filter((item) => item.id !== row.id));
       } else {
@@ -941,7 +959,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 2J</small>
+            <small>Milena · Fase 2K</small>
           </div>
         </div>
         <nav>
@@ -965,7 +983,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 2J</span>
+          <span className="version" title={APP_VERSION}>Fase 2K</span>
         </header>
 
         <StatusBar

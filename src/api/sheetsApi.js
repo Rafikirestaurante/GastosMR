@@ -2,8 +2,8 @@ import { normalizeText, parseAmount, todayISO } from '../utils/format.js';
 
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || '';
 const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || '';
-const DEMO_KEY = 'control-gastos-milena-demo-v2-tabla-oficial';
-const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v2-tabla-oficial';
+const DEMO_KEY = 'control-gastos-milena-demo-v2k-tabla-oficial';
+const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v2k-tabla-oficial';
 const PROXY_URL = '/api/sheets';
 const DIRECT_TIMEOUT_MS = 15000;
 
@@ -22,7 +22,10 @@ function normalizeOfficialRow(data = {}) {
     tipoMovimiento: finalIngreso > 0 ? 'Ingreso' : 'Egreso',
     monto: finalIngreso > 0 ? finalIngreso : finalEgreso,
     categoria: data.categoria || '',
-    subcategoria: data.subcategoria || ''
+    subcategoria: data.subcategoria || '',
+    creadoEn: data.creadoEn || data.creado_en || '',
+    actualizadoEn: data.actualizadoEn || data.actualizado_en || '',
+    estado: data.estado || 'Activo'
   };
 }
 
@@ -96,6 +99,16 @@ function saveDemoState(state) {
   localStorage.setItem(DEMO_KEY, JSON.stringify(state));
 }
 
+function nowIso() {
+  return new Date().toISOString().slice(0, 19);
+}
+
+function newOfficialId() {
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
+  const random = Math.floor(Math.random() * 9000 + 1000);
+  return `TO-${stamp}-${random}`;
+}
+
 function saveRemoteSnapshot(data) {
   try {
     localStorage.setItem(REMOTE_CACHE_KEY, JSON.stringify({
@@ -135,13 +148,22 @@ async function localRequest(action, payload = {}) {
   const state = getDemoState();
 
   if (action === 'bootstrap') {
-    return { ok: true, demo: true, data: state };
+    return {
+      ok: true,
+      demo: true,
+      data: {
+        ...state,
+        mile: (state.mile || []).filter((row) => String(row.estado || 'Activo').toLowerCase() !== 'eliminado')
+      }
+    };
   }
 
   if (action === 'create') {
     const key = payload.entity === 'rafa' ? 'rafa' : 'mile';
-    const prefix = key === 'rafa' ? 'R' : 'TO';
-    const rawRow = { ...payload.data, id: nextId(state[key], prefix) };
+    const now = nowIso();
+    const rawRow = key === 'mile'
+      ? { ...payload.data, id: newOfficialId(), creadoEn: now, actualizadoEn: now, estado: 'Activo' }
+      : { ...payload.data, id: nextId(state[key], 'R') };
     const row = key === 'mile' ? normalizeOfficialRow(rawRow) : rawRow;
     state[key] = [row, ...state[key]];
     saveDemoState(state);
@@ -150,20 +172,33 @@ async function localRequest(action, payload = {}) {
 
   if (action === 'update') {
     const key = payload.entity === 'rafa' ? 'rafa' : 'mile';
+    let updatedRow = null;
     state[key] = state[key].map((item) => {
       if (item.id !== payload.id) return item;
-      const updated = { ...item, ...payload.data, id: payload.id };
-      return key === 'mile' ? normalizeOfficialRow(updated) : updated;
+      const updated = key === 'mile'
+        ? { ...item, ...payload.data, id: payload.id, actualizadoEn: nowIso(), estado: 'Activo' }
+        : { ...item, ...payload.data, id: payload.id };
+      updatedRow = key === 'mile' ? normalizeOfficialRow(updated) : updated;
+      return updatedRow;
     });
     saveDemoState(state);
-    return { ok: true, demo: true };
+    return { ok: true, demo: true, data: updatedRow };
   }
 
   if (action === 'delete') {
     const key = payload.entity === 'rafa' ? 'rafa' : 'mile';
+    if (key === 'mile') {
+      const now = nowIso();
+      state[key] = state[key].map((item) => item.id === payload.id
+        ? { ...item, estado: 'Eliminado', actualizadoEn: now }
+        : item
+      );
+      saveDemoState(state);
+      return { ok: true, demo: true, data: { id: payload.id, estado: 'Eliminado', actualizadoEn: now } };
+    }
     state[key] = state[key].filter((item) => item.id !== payload.id);
     saveDemoState(state);
-    return { ok: true, demo: true };
+    return { ok: true, demo: true, data: { id: payload.id } };
   }
 
   return { ok: false, message: 'Acción no soportada en modo demo.' };

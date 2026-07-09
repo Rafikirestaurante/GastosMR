@@ -1,15 +1,21 @@
 /************************************************************
- * Control Gastos Milena - Fase 2J
+ * Control Gastos Milena - Fase 2K
  * Backend Google Apps Script para Google Sheets.
  *
  * Hoja principal activa: "Tabla Oficial".
  * La hoja anterior "Gastos Mile" queda desactivada para la app.
  *
- * Columnas esperadas en Tabla Oficial:
+ * Columnas visibles esperadas en Tabla Oficial:
  * Gastos Fecha | Proveedor | Concepto | Ingreso | Egreso | Categoría | Subcategoría
  *
- * Fase 2J: lectura optimizada para mejorar apertura y uso en móvil.
- * Evita leer columnas innecesarias y reduce llamadas duplicadas a la hoja.
+ * Columnas técnicas agregadas automáticamente al final:
+ * ID_Transaccion | Creado_en | Actualizado_en | Estado
+ *
+ * Fase 2K: sincronización segura para uso simultáneo.
+ * - ID real por movimiento, sin depender del número de fila.
+ * - LockService para crear/editar/borrar sin choques.
+ * - Eliminación lógica con Estado = Eliminado.
+ * - Control básico de concurrencia con Actualizado_en.
  *
  * Instrucciones:
  * 1. Pega este archivo en Apps Script.
@@ -36,6 +42,12 @@ const HEADERS = {
     'Egreso',
     'Categoría',
     'Subcategoría'
+  ],
+  mileTechnical: [
+    'ID_Transaccion',
+    'Creado_en',
+    'Actualizado_en',
+    'Estado'
   ],
   rafa: [
     'ID_Transaccion',
@@ -80,13 +92,13 @@ function doGet(e) {
     }
 
     if (action === 'update') {
-      updateRow_(payload.entity, payload.id, payload.data || {});
-      return respond_({ ok: true }, callback);
+      const result = updateRow_(payload.entity, payload.id, payload.data || {}, payload.lastKnownUpdatedAt || '');
+      return respond_({ ok: true, data: result }, callback);
     }
 
     if (action === 'delete') {
-      deleteRow_(payload.entity, payload.id);
-      return respond_({ ok: true }, callback);
+      const result = deleteRow_(payload.entity, payload.id, payload.lastKnownUpdatedAt || '');
+      return respond_({ ok: true, data: result }, callback);
     }
 
     return respond_({ ok: false, message: 'Acción no soportada: ' + action }, callback);
@@ -170,26 +182,120 @@ function uniqueClean_(values) {
 function readRows_(entity) {
   const sheet = getSheet_(entity);
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
-
   if (entity === 'mile') {
-    const headerWidth = Math.max(sheet.getLastColumn(), HEADERS.mile.length);
-    const headerRow = sheet.getRange(1, 1, 1, headerWidth).getDisplayValues()[0];
-    const indexes = buildOfficialIndex_(headerRow);
-    const width = Math.max.apply(null, Object.values(indexes)) + 1;
-    const values = sheet.getRange(2, 1, lastRow - 1, width).getValues();
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      const indexes = ensureOfficialSchema_(sheet);
+      const currentLastRow = sheet.getLastRow();
+      if (currentLastRow < 2) return [];
+      const width = Math.max.apply(null, Object.values(indexes)) + 1;
+      const values = sheet.getRange(2, 1, currentLastRow - 1, width).getValues();
 
-    return values
-      .map((row, index) => mapMileRow_(row, index + 2, null, indexes))
-      .filter(row => String(row.id || '').trim() !== '');
+      return values
+        .map((row, index) => mapMileRow_(row, index + 2, null, indexes))
+        .filter(row => String(row.id || '').trim() !== '' && normalizeText_(row.estado) !== 'eliminado');
+    } finally {
+      lock.releaseLock();
+    }
   }
 
+  if (lastRow < 2) return [];
   const headers = HEADERS[entity];
   const values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
 
   return values
     .map((row) => mapRafaRow_(row, null))
     .filter(row => String(row.id || '').trim() !== '');
+}
+
+function ensureOfficialSchema_(sheet) {
+  if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, HEADERS.mile.length).setValues([HEADERS.mile]);
+  }
+
+  let lastColumn = Math.max(sheet.getLastColumn(), HEADERS.mile.length);
+  let headerRow = sheet.getRange(1, 1, 1, lastColumn).getDisplayValues()[0];
+
+  if (headerRow.every(value => String(value || '').trim() === '')) {
+    sheet.getRange(1, 1, 1, HEADERS.mile.length).setValues([HEADERS.mile]);
+    lastColumn = HEADERS.mile.length;
+    headerRow = sheet.getRange(1, 1, 1, lastColumn).getDisplayValues()[0];
+  }
+
+  const technicalMissing = HEADERS.mileTechnical.filter(header => findHeaderIndex_(headerRow, [header], -1) === -1);
+  if (technicalMissing.length) {
+    sheet.getRange(1, lastColumn + 1, 1, technicalMissing.length).setValues([technicalMissing]);
+    try {
+      sheet.hideColumns(lastColumn + 1, technicalMissing.length);
+    } catch (error) {
+      // Si Google Sheets no permite ocultar por algún motivo, la app continúa funcionando.
+    }
+    lastColumn += technicalMissing.length;
+    headerRow = sheet.getRange(1, 1, 1, lastColumn).getDisplayValues()[0];
+  }
+
+  const indexes = buildOfficialIndex_(headerRow);
+  assignMissingOfficialMetadata_(sheet, indexes);
+  return indexes;
+}
+
+function assignMissingOfficialMetadata_(sheet, indexes) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+
+  const width = Math.max.apply(null, Object.values(indexes)) + 1;
+  const range = sheet.getRange(2, 1, lastRow - 1, width);
+  const values = range.getValues();
+  const existingIds = collectExistingIds_(values, indexes.id);
+  let changed = false;
+  const now = nowIso_();
+
+  for (let i = 0; i < values.length; i++) {
+    const row = values[i];
+    const fecha = formatDate_(cell_(row, indexes.fecha), '');
+    const proveedor = String(cell_(row, indexes.proveedor) || '').trim();
+    const concepto = String(cell_(row, indexes.concepto) || '').trim();
+    const ingreso = parseAmount_(cell_(row, indexes.ingreso));
+    const egreso = parseAmount_(cell_(row, indexes.egreso));
+    const isEmpty = !fecha && !proveedor && !concepto && ingreso <= 0 && egreso <= 0;
+    if (isEmpty) continue;
+
+    if (!String(cell_(row, indexes.id) || '').trim()) {
+      const id = generateUniqueOfficialId_(existingIds);
+      row[indexes.id] = id;
+      existingIds[id] = true;
+      changed = true;
+    }
+
+    if (!String(cell_(row, indexes.creadoEn) || '').trim()) {
+      row[indexes.creadoEn] = now;
+      changed = true;
+    }
+
+    if (!String(cell_(row, indexes.actualizadoEn) || '').trim()) {
+      row[indexes.actualizadoEn] = now;
+      changed = true;
+    }
+
+    if (!String(cell_(row, indexes.estado) || '').trim()) {
+      row[indexes.estado] = 'Activo';
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    range.setValues(values);
+  }
+}
+
+function collectExistingIds_(values, idIndex) {
+  const ids = {};
+  values.forEach(row => {
+    const id = String(cell_(row, idIndex) || '').trim();
+    if (id) ids[id] = true;
+  });
+  return ids;
 }
 
 function buildOfficialIndex_(headers) {
@@ -200,7 +306,11 @@ function buildOfficialIndex_(headers) {
     ingreso: findHeaderIndex_(headers, ['ingreso', 'ingresos'], 3),
     egreso: findHeaderIndex_(headers, ['egreso', 'egresos', 'gasto', 'gastos'], 4),
     categoria: findHeaderIndex_(headers, ['categoria'], 5),
-    subcategoria: findHeaderIndex_(headers, ['subcategoria'], 6)
+    subcategoria: findHeaderIndex_(headers, ['subcategoria'], 6),
+    id: findHeaderIndex_(headers, ['idtransaccion', 'id_transaccion', 'id', 'idmovimiento'], 7),
+    creadoEn: findHeaderIndex_(headers, ['creadoen', 'creado_en'], 8),
+    actualizadoEn: findHeaderIndex_(headers, ['actualizadoen', 'actualizado_en'], 9),
+    estado: findHeaderIndex_(headers, ['estado'], 10)
   };
 }
 
@@ -222,9 +332,15 @@ function cell_(row, index) {
   return index >= 0 && index < row.length ? row[index] : '';
 }
 
+function setCell_(row, index, value) {
+  if (index < 0) return;
+  while (row.length <= index) row.push('');
+  row[index] = value;
+}
+
 function mapMileRow_(row, rowNumber, displayRow, indexes) {
   const display = displayRow || [];
-  const idx = indexes || buildOfficialIndex_(HEADERS.mile);
+  const idx = indexes || buildOfficialIndex_(HEADERS.mile.concat(HEADERS.mileTechnical));
   const fecha = formatDate_(cell_(row, idx.fecha), cell_(display, idx.fecha));
   const proveedor = String(cell_(row, idx.proveedor) || cell_(display, idx.proveedor) || '').trim();
   const concepto = String(cell_(row, idx.concepto) || cell_(display, idx.concepto) || '').trim();
@@ -232,13 +348,17 @@ function mapMileRow_(row, rowNumber, displayRow, indexes) {
   const egreso = parseAmount_(cell_(row, idx.egreso), cell_(display, idx.egreso));
   const categoria = String(cell_(row, idx.categoria) || cell_(display, idx.categoria) || '').trim();
   const subcategoria = String(cell_(row, idx.subcategoria) || cell_(display, idx.subcategoria) || '').trim();
+  const id = String(cell_(row, idx.id) || cell_(display, idx.id) || '').trim();
+  const creadoEn = String(cell_(row, idx.creadoEn) || cell_(display, idx.creadoEn) || '').trim();
+  const actualizadoEn = String(cell_(row, idx.actualizadoEn) || cell_(display, idx.actualizadoEn) || '').trim();
+  const estado = String(cell_(row, idx.estado) || cell_(display, idx.estado) || 'Activo').trim() || 'Activo';
 
   if (!fecha && !proveedor && !concepto && ingreso <= 0 && egreso <= 0) {
     return { id: '' };
   }
 
   return {
-    id: 'TO' + rowNumber,
+    id: id || ('TO' + rowNumber),
     fecha: fecha,
     proveedor: proveedor,
     concepto: concepto,
@@ -247,7 +367,10 @@ function mapMileRow_(row, rowNumber, displayRow, indexes) {
     tipoMovimiento: ingreso > 0 ? 'Ingreso' : 'Egreso',
     monto: ingreso > 0 ? ingreso : egreso,
     categoria: categoria,
-    subcategoria: subcategoria
+    subcategoria: subcategoria,
+    creadoEn: creadoEn,
+    actualizadoEn: actualizadoEn,
+    estado: estado
   };
 }
 
@@ -360,6 +483,10 @@ function officialAmounts_(data) {
   return { ingreso: ingreso, egreso: egreso };
 }
 
+function nowIso_() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+}
+
 function createRow_(entity, data) {
   if (entity !== 'mile' && entity !== 'rafa') throw new Error('Entidad no válida.');
   validateRequired_(entity, data);
@@ -370,18 +497,28 @@ function createRow_(entity, data) {
   try {
     const sheet = getSheet_(entity);
     if (entity === 'mile') {
+      const indexes = ensureOfficialSchema_(sheet);
       const amounts = officialAmounts_(data);
-      const row = [
-        parseDate_(data.fecha),
-        data.proveedor,
-        data.concepto,
-        amounts.ingreso,
-        amounts.egreso,
-        data.categoria || '',
-        data.subcategoria || ''
-      ];
+      const width = Math.max.apply(null, Object.values(indexes)) + 1;
+      const existingIds = readOfficialIds_(sheet, indexes);
+      const now = nowIso_();
+      const id = generateUniqueOfficialId_(existingIds);
+      const row = new Array(width).fill('');
+
+      setCell_(row, indexes.fecha, parseDate_(data.fecha));
+      setCell_(row, indexes.proveedor, data.proveedor);
+      setCell_(row, indexes.concepto, data.concepto);
+      setCell_(row, indexes.ingreso, amounts.ingreso);
+      setCell_(row, indexes.egreso, amounts.egreso);
+      setCell_(row, indexes.categoria, data.categoria || '');
+      setCell_(row, indexes.subcategoria, data.subcategoria || '');
+      setCell_(row, indexes.id, id);
+      setCell_(row, indexes.creadoEn, now);
+      setCell_(row, indexes.actualizadoEn, now);
+      setCell_(row, indexes.estado, 'Activo');
+
       sheet.appendRow(row);
-      return mapMileRow_(row, sheet.getLastRow());
+      return mapMileRow_(row, sheet.getLastRow(), null, indexes);
     }
 
     const id = generateId_(entity, sheet);
@@ -400,7 +537,7 @@ function createRow_(entity, data) {
   }
 }
 
-function updateRow_(entity, id, data) {
+function updateRow_(entity, id, data, lastKnownUpdatedAt) {
   if (entity !== 'mile' && entity !== 'rafa') throw new Error('Entidad no válida.');
   if (!id) throw new Error('Falta ID para actualizar.');
   validateRequired_(entity, data);
@@ -410,23 +547,37 @@ function updateRow_(entity, id, data) {
 
   try {
     const sheet = getSheet_(entity);
-    const rowNumber = findRowById_(entity, sheet, id);
-    if (!rowNumber) throw new Error('No se encontró el registro: ' + id);
 
     if (entity === 'mile') {
+      const indexes = ensureOfficialSchema_(sheet);
+      const rowNumber = findRowById_(entity, sheet, id, indexes);
+      if (!rowNumber) throw new Error('No se encontró el registro: ' + id);
+
+      assertNotChanged_(sheet, rowNumber, indexes, lastKnownUpdatedAt);
+
       const amounts = officialAmounts_(data);
-      const row = [
-        parseDate_(data.fecha),
-        data.proveedor,
-        data.concepto,
-        amounts.ingreso,
-        amounts.egreso,
-        data.categoria || '',
-        data.subcategoria || ''
-      ];
-      sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
-      return;
+      const width = Math.max.apply(null, Object.values(indexes)) + 1;
+      const rowRange = sheet.getRange(rowNumber, 1, 1, width);
+      const row = rowRange.getValues()[0];
+      const now = nowIso_();
+
+      setCell_(row, indexes.fecha, parseDate_(data.fecha));
+      setCell_(row, indexes.proveedor, data.proveedor);
+      setCell_(row, indexes.concepto, data.concepto);
+      setCell_(row, indexes.ingreso, amounts.ingreso);
+      setCell_(row, indexes.egreso, amounts.egreso);
+      setCell_(row, indexes.categoria, data.categoria || '');
+      setCell_(row, indexes.subcategoria, data.subcategoria || '');
+      setCell_(row, indexes.id, id);
+      setCell_(row, indexes.actualizadoEn, now);
+      setCell_(row, indexes.estado, 'Activo');
+
+      rowRange.setValues([row]);
+      return mapMileRow_(row, rowNumber, null, indexes);
     }
+
+    const rowNumber = findRowById_(entity, sheet, id);
+    if (!rowNumber) throw new Error('No se encontró el registro: ' + id);
 
     const row = [
       id,
@@ -437,12 +588,13 @@ function updateRow_(entity, id, data) {
     ];
 
     sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
+    return mapRafaRow_(row);
   } finally {
     lock.releaseLock();
   }
 }
 
-function deleteRow_(entity, id) {
+function deleteRow_(entity, id, lastKnownUpdatedAt) {
   if (entity !== 'mile' && entity !== 'rafa') throw new Error('Entidad no válida.');
   if (!id) throw new Error('Falta ID para borrar.');
 
@@ -451,11 +603,36 @@ function deleteRow_(entity, id) {
 
   try {
     const sheet = getSheet_(entity);
+
+    if (entity === 'mile') {
+      const indexes = ensureOfficialSchema_(sheet);
+      const rowNumber = findRowById_(entity, sheet, id, indexes);
+      if (!rowNumber) throw new Error('No se encontró el registro: ' + id);
+
+      assertNotChanged_(sheet, rowNumber, indexes, lastKnownUpdatedAt);
+
+      const now = nowIso_();
+      sheet.getRange(rowNumber, indexes.estado + 1).setValue('Eliminado');
+      sheet.getRange(rowNumber, indexes.actualizadoEn + 1).setValue(now);
+      return { id: id, estado: 'Eliminado', actualizadoEn: now };
+    }
+
     const rowNumber = findRowById_(entity, sheet, id);
     if (!rowNumber) throw new Error('No se encontró el registro: ' + id);
     sheet.deleteRow(rowNumber);
+    return { id: id };
   } finally {
     lock.releaseLock();
+  }
+}
+
+function assertNotChanged_(sheet, rowNumber, indexes, lastKnownUpdatedAt) {
+  const expected = String(lastKnownUpdatedAt || '').trim();
+  if (!expected) return;
+
+  const current = String(sheet.getRange(rowNumber, indexes.actualizadoEn + 1).getValue() || '').trim();
+  if (current && current !== expected) {
+    throw new Error('Este movimiento fue actualizado desde otro dispositivo. Presiona "Actualizar datos" y vuelve a intentar.');
   }
 }
 
@@ -479,23 +656,50 @@ function validateRequired_(entity, data) {
   }
 }
 
-function findRowById_(entity, sheet, id) {
-  if (entity === 'mile') {
-    const match = String(id || '').match(/^TO(\d+)$/);
-    if (!match) return 0;
-    const rowNumber = Number(match[1]);
-    if (rowNumber < 2 || rowNumber > sheet.getLastRow()) return 0;
-    return rowNumber;
-  }
-
+function findRowById_(entity, sheet, id, indexes) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return 0;
+
+  if (entity === 'mile') {
+    const idx = indexes || ensureOfficialSchema_(sheet);
+    const ids = sheet.getRange(2, idx.id + 1, lastRow - 1, 1).getValues().flat();
+    const target = String(id).trim();
+    for (let i = 0; i < ids.length; i++) {
+      if (String(ids[i]).trim() === target) return i + 2;
+    }
+    return 0;
+  }
+
   const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues().flat();
   const target = String(id).trim();
   for (let i = 0; i < ids.length; i++) {
     if (String(ids[i]).trim() === target) return i + 2;
   }
   return 0;
+}
+
+function readOfficialIds_(sheet, indexes) {
+  const lastRow = sheet.getLastRow();
+  const ids = {};
+  if (lastRow < 2) return ids;
+
+  const values = sheet.getRange(2, indexes.id + 1, lastRow - 1, 1).getValues().flat();
+  values.forEach(value => {
+    const id = String(value || '').trim();
+    if (id) ids[id] = true;
+  });
+  return ids;
+}
+
+function generateUniqueOfficialId_(existingIds) {
+  let id = '';
+  do {
+    const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss');
+    const random = Math.floor(Math.random() * 9000 + 1000);
+    id = 'TO-' + stamp + '-' + random;
+  } while (existingIds[id]);
+  existingIds[id] = true;
+  return id;
 }
 
 function generateId_(entity, sheet) {
