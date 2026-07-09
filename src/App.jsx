@@ -41,7 +41,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 2L';
+const APP_VERSION = 'Fase 2M';
 const SYNC_DELAY_MS = 2500;
 
 function reloadApp() {
@@ -119,44 +119,67 @@ function Card({ title, value, detail }) {
   );
 }
 
+function StatusChip({ type = 'info', children, title = '' }) {
+  return (
+    <span className={`status-chip-small ${type}`} title={title}>
+      <span aria-hidden="true" className="status-dot" />
+      {children}
+    </span>
+  );
+}
+
 function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefresh, pendingSyncCount, failedSyncCount, syncing, onSyncNow }) {
-  let connectionBanner = null;
+  let connectionType = 'success';
+  let connectionText = 'Conectado';
+  let connectionTitle = 'Conectado correctamente a Google Sheets.';
 
   if (loading && hasData && cachedAt) {
-    connectionBanner = <div className="banner info">Mostrando la última copia guardada mientras se actualiza Google Sheets...</div>;
+    connectionType = 'info';
+    connectionText = 'Actualizando';
+    connectionTitle = 'Mostrando la última copia guardada mientras se actualiza Google Sheets.';
   } else if (loading) {
-    connectionBanner = <div className="banner info">Verificando conexión con Google Sheets...</div>;
+    connectionType = 'info';
+    connectionText = 'Verificando';
+    connectionTitle = 'Verificando conexión con Google Sheets.';
   } else if (error && cachedAt) {
-    connectionBanner = (
-      <div className="banner warning">
-        No se pudo actualizar desde Google Sheets. Se muestra la última información guardada en este dispositivo.
-      </div>
-    );
+    connectionType = 'warning';
+    connectionText = 'Copia local';
+    connectionTitle = 'No se pudo actualizar desde Google Sheets. Se muestra la última información guardada en este dispositivo.';
   } else if (error) {
-    connectionBanner = <div className="banner danger">{error}</div>;
+    connectionType = 'danger';
+    connectionText = 'Sin conexión';
+    connectionTitle = error;
   } else if (demoMode) {
-    connectionBanner = (
-      <div className="banner warning">
-        Modo demo/local activo. Configura la URL de Apps Script y el token para trabajar con Google Sheets.
-      </div>
-    );
-  } else {
-    connectionBanner = <div className="banner success">Conectado correctamente a Google Sheets.</div>;
+    connectionType = 'warning';
+    connectionText = 'Modo local';
+    connectionTitle = 'Modo demo/local activo. Configura la URL de Apps Script y el token para trabajar con Google Sheets.';
+  }
+
+  let syncType = 'warning';
+  let syncText = '';
+  let syncTitle = '';
+  if (pendingSyncCount > 0) {
+    if (failedSyncCount > 0) {
+      syncType = 'danger';
+      syncText = `${failedSyncCount} con error`;
+      syncTitle = `${failedSyncCount} cambio(s) no se pudieron sincronizar. Puedes tocar “Sincronizar ahora”.`;
+    } else if (syncing) {
+      syncType = 'info';
+      syncText = `${pendingSyncCount} sincronizando`;
+      syncTitle = `Sincronizando ${pendingSyncCount} cambio(s) pendiente(s) con Google Sheets.`;
+    } else {
+      syncText = `${pendingSyncCount} pendiente`;
+      syncTitle = `${pendingSyncCount} cambio(s) guardado(s) en este dispositivo y pendiente(s) por subir a Google Sheets.`;
+    }
   }
 
   return (
-    <div className="status-wrap">
-      {connectionBanner}
-      {notice && !error ? <div className="banner success">{notice}</div> : null}
-      {pendingSyncCount > 0 ? (
-        <div className={`banner ${failedSyncCount > 0 ? 'danger' : syncing ? 'info' : 'warning'}`}>
-          {syncing
-            ? `Sincronizando ${pendingSyncCount} cambio(s) pendiente(s) con Google Sheets...`
-            : failedSyncCount > 0
-              ? `${failedSyncCount} cambio(s) no se pudieron sincronizar. Puedes tocar “Sincronizar ahora”.`
-              : `${pendingSyncCount} cambio(s) guardado(s) en este dispositivo y pendiente(s) por subir a Google Sheets.`}
-        </div>
-      ) : null}
+    <div className="status-wrap status-wrap-compact">
+      <div className="status-line" aria-live="polite">
+        <StatusChip type={connectionType} title={connectionTitle}>{connectionText}</StatusChip>
+        {notice && !error ? <StatusChip type="success" title={notice}>{notice}</StatusChip> : null}
+        {pendingSyncCount > 0 ? <StatusChip type={syncType} title={syncTitle}>{syncText}</StatusChip> : null}
+      </div>
       {error && !hasData ? (
         <div className="connection-help">
           <strong>No se pudieron cargar los datos en este dispositivo.</strong>
@@ -180,6 +203,7 @@ function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefr
     </div>
   );
 }
+
 
 const DASHBOARD_TABLE_COLUMNS = [
   { key: 'fecha', label: 'Fecha' },
@@ -892,6 +916,12 @@ export default function App() {
   useEffect(() => { queueRef.current = syncQueue; }, [syncQueue]);
 
   useEffect(() => {
+    if (!notice) return undefined;
+    const timer = window.setTimeout(() => setNotice(''), 3500);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
     if (config.categorias.length || config.tiposMovimiento.length || config.subcategorias.length || mile.length || rafa.length) {
       saveWorkingSnapshot({ config, mile, rafa });
     }
@@ -1087,7 +1117,7 @@ export default function App() {
           applySyncedResponse({ ...currentItem, id: resolvedId }, response?.data);
           workingQueue = workingQueue.filter((op) => op.opId !== currentItem.opId);
           setSyncQueue(workingQueue);
-          setNotice('Cambios sincronizados correctamente.');
+          setNotice('Sincronizado');
         } catch (err) {
           const message = err.message || 'No se pudo sincronizar este cambio.';
           workingQueue = workingQueue.map((op) => op.opId === currentItem.opId
@@ -1130,7 +1160,7 @@ export default function App() {
 
   function saveMile(data) {
     setError('');
-    setNotice('Movimiento guardado en este dispositivo. Sincronizando con Google Sheets...');
+    setNotice('Guardado local');
 
     if (editing) {
       const updatedSource = { ...editing, ...data, id: editing.id, syncStatus: 'pending', syncError: '' };
@@ -1167,7 +1197,7 @@ export default function App() {
 
   function createRafa(data) {
     setError('');
-    setNotice('Gasto de Rafa guardado en este dispositivo. Sincronizando con Google Sheets...');
+    setNotice('Guardado local');
     const tempId = createTempId('R');
     const localCreated = normalizeLoadedData({
       rafa: [{
@@ -1194,7 +1224,7 @@ export default function App() {
     if (!confirmDelete) return;
 
     setError('');
-    setNotice('Registro borrado en este dispositivo. Sincronizando con Google Sheets...');
+    setNotice('Borrado local');
 
     if (entity === 'rafa') {
       setRafa((current) => current.filter((item) => item.id !== row.id));
@@ -1220,7 +1250,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 2L</small>
+            <small>Milena · Fase 2M</small>
           </div>
         </div>
         <nav>
@@ -1244,7 +1274,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 2L</span>
+          <span className="version" title={APP_VERSION}>Fase 2M</span>
         </header>
 
         <StatusBar

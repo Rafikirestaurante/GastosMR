@@ -1343,3 +1343,96 @@ select {
     width: 100%;
   }
 }
+
+/* Fase 2M: mensajes de conexión y sincronización más discretos */
+.status-wrap-compact {
+  gap: 0.45rem;
+  margin-bottom: 0.8rem;
+}
+
+.status-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 28px;
+}
+
+.status-chip-small {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+  background: #eef4ff;
+  color: #1d4ed8;
+}
+
+.status-chip-small .status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.status-chip-small.success {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: #b7e2bd;
+}
+
+.status-chip-small.warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border-color: #f5d184;
+}
+
+.status-chip-small.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: #f4b5af;
+}
+
+.status-chip-small.info {
+  background: #eef4ff;
+  color: #1d4ed8;
+  border-color: #bfd7ff;
+}
+
+@media (max-width: 720px) {
+  .status-wrap-compact {
+    gap: 0.38rem;
+    margin-bottom: 0.65rem;
+  }
+
+  .status-line {
+    gap: 0.28rem;
+    min-height: 24px;
+  }
+
+  .status-chip-small {
+    padding: 0.24rem 0.46rem;
+    font-size: 0.72rem;
+  }
+
+  .status-chip-small .status-dot {
+    width: 6px;
+    height: 6px;
+  }
+
+  .status-actions {
+    gap: 0.38rem;
+  }
+
+  .status-actions .sync-now-button {
+    grid-column: auto;
+    width: auto;
+  }
+}

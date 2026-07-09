@@ -1,4 +1,4 @@
-# Control Gastos Milena — Fase 2L
+# Control Gastos Milena — Fase 2M
 
 Aplicación web sencilla para controlar los gastos de Milena usando React + Vite, Vercel y Google Sheets mediante Google Apps Script.
 
@@ -24,7 +24,7 @@ ID_Transaccion | Creado_en | Actualizado_en | Estado
 
 Estas columnas técnicas permiten editar, borrar y sincronizar de forma más segura sin depender del número de fila.
 
-## Fase 2L - Guardado rápido local
+## Fase 2M - Guardado rápido local
 
 En esta fase la app guarda visualmente de inmediato en el dispositivo y sincroniza después con Google Sheets.
 
