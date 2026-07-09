@@ -271,3 +271,8 @@ Cambios principales:
 - Apps Script genera referencias internas tipo `TO2`, `TO3`, etc., basadas en la fila, para poder editar y borrar sin agregar una columna ID visible a la Tabla Oficial.
 
 Después de actualizar esta versión, copia nuevamente `apps-script/Code.gs` en Google Apps Script, guarda y vuelve a desplegar la Web App si Google lo solicita.
+
+
+## Fase 2J - Optimización de velocidad
+
+Se optimizó la apertura y uso general de la app: carga inicial con copia local, sincronización silenciosa después de guardar/editar/borrar, reducción de lecturas en Apps Script y timeout más corto para conexiones lentas. Ver `FASE_2J_NOTAS.md`.

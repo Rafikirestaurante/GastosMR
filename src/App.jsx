@@ -30,7 +30,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 2I';
+const APP_VERSION = 'Fase 2J';
 
 function reloadApp() {
   const url = new URL(window.location.href);
@@ -48,11 +48,13 @@ const navItems = [
 
 
 function getIngreso(row) {
-  return parseAmount(row.ingreso);
+  if (typeof row?._ingreso === 'number') return row._ingreso;
+  return parseAmount(row?.ingreso);
 }
 
 function getEgreso(row) {
-  return parseAmount(row.egreso);
+  if (typeof row?._egreso === 'number') return row._egreso;
+  return parseAmount(row?.egreso);
 }
 
 function getMovementType(row) {
@@ -108,7 +110,9 @@ function Card({ title, value, detail }) {
 function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefresh }) {
   let connectionBanner = null;
 
-  if (loading) {
+  if (loading && hasData && cachedAt) {
+    connectionBanner = <div className="banner info">Mostrando la última copia guardada mientras se actualiza Google Sheets...</div>;
+  } else if (loading) {
     connectionBanner = <div className="banner info">Verificando conexión con Google Sheets...</div>;
   } else if (error && cachedAt) {
     connectionBanner = (
@@ -165,7 +169,7 @@ const DASHBOARD_TABLE_COLUMNS = [
 const DEFAULT_DASHBOARD_COLUMNS = DASHBOARD_TABLE_COLUMNS.map((column) => column.key);
 
 function getRowDateKey(row) {
-  return toDateKey(row.fecha);
+  return row?._fechaKey || toDateKey(row?.fecha);
 }
 
 function compareOfficialRowsAsc(a, b) {
@@ -211,13 +215,13 @@ function Dashboard({ mile, rafa, month, setMonth }) {
       });
   }, [mile]);
 
-  const monthRows = rowsWithBalance.filter((row) => getMonthKey(row.fecha) === month);
+  const monthRows = rowsWithBalance.filter((row) => (row._monthKey || getMonthKey(row.fecha)) === month);
   const totalIngresos = sumBy(monthRows, getIngreso);
   const totalEgresos = sumBy(monthRows, getEgreso);
   const saldoMes = monthRows.length > 0 ? monthRows[monthRows.length - 1].saldoAcumulado : 0;
   const saldoAcumulado = rowsWithBalance.length > 0 ? rowsWithBalance[rowsWithBalance.length - 1].saldoAcumulado : 0;
   const rafaMes = sumBy(
-    rafa.filter((row) => getMonthKey(row.fecha) === month),
+    rafa.filter((row) => (row._monthKey || getMonthKey(row.fecha)) === month),
     (row) => row.monto
   );
 
@@ -763,6 +767,39 @@ function ConfigPanel({ config }) {
   );
 }
 
+function normalizeLoadedData(data = {}) {
+  const safeConfig = data.config || { categorias: [], tiposMovimiento: [], subcategorias: [] };
+  const mileRows = (data.mile || []).map((row) => {
+    const ingreso = parseAmount(row.ingreso);
+    const egreso = parseAmount(row.egreso);
+    const fechaKey = toDateKey(row.fecha);
+    return {
+      ...row,
+      _ingreso: ingreso,
+      _egreso: egreso,
+      _neto: ingreso - egreso,
+      _fechaKey: fechaKey,
+      _monthKey: fechaKey ? fechaKey.slice(0, 7) : ''
+    };
+  });
+
+  const rafaRows = (data.rafa || []).map((row) => {
+    const fechaKey = toDateKey(row.fecha);
+    return {
+      ...row,
+      monto: parseAmount(row.monto),
+      _fechaKey: fechaKey,
+      _monthKey: fechaKey ? fechaKey.slice(0, 7) : ''
+    };
+  });
+
+  return {
+    config: safeConfig,
+    mile: mileRows,
+    rafa: rafaRows
+  };
+}
+
 export default function App() {
   const [active, setActive] = useState('dashboard');
   const [month, setMonth] = useState(currentMonthKey());
@@ -777,28 +814,46 @@ export default function App() {
   const [cachedAt, setCachedAt] = useState('');
   const [editing, setEditing] = useState(null);
 
-  async function loadData() {
-    try {
+  function applyLoadedData(data) {
+    const normalized = normalizeLoadedData(data);
+    setConfig(normalized.config);
+    setMile(normalized.mile);
+    setRafa(normalized.rafa);
+  }
+
+  async function loadData(options = {}) {
+    const { silent = false, preferCache = true } = options;
+    const cached = getCachedRemoteSnapshot();
+
+    if (!silent) {
       setLoading(true);
       setError('');
-      setCachedAt('');
-      const response = await sheetsRequest('bootstrap');
-      setConfig(response.data.config);
-      setMile(response.data.mile || []);
-      setRafa(response.data.rafa || []);
-      setDemoMode(Boolean(response.demo));
-    } catch (err) {
-      const cached = getCachedRemoteSnapshot();
-      if (cached?.data) {
-        setConfig(cached.data.config || { categorias: [], tiposMovimiento: [], subcategorias: [] });
-        setMile(cached.data.mile || []);
-        setRafa(cached.data.rafa || []);
+      if (preferCache && cached?.data && mile.length === 0 && rafa.length === 0) {
+        applyLoadedData(cached.data);
         setDemoMode(false);
         setCachedAt(cached.savedAt || 'copia local');
+      } else {
+        setCachedAt('');
       }
-      setError(err.message || 'No se pudieron cargar los datos.');
+    }
+
+    try {
+      const response = await sheetsRequest('bootstrap');
+      applyLoadedData(response.data);
+      setDemoMode(Boolean(response.demo));
+      setCachedAt('');
+      if (!silent) setError('');
+    } catch (err) {
+      if (!silent) {
+        if (cached?.data && mile.length === 0 && rafa.length === 0) {
+          applyLoadedData(cached.data);
+          setDemoMode(false);
+          setCachedAt(cached.savedAt || 'copia local');
+        }
+        setError(err.message || 'No se pudieron cargar los datos.');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
@@ -813,14 +868,20 @@ export default function App() {
       setNotice('');
       if (editing) {
         await sheetsRequest('update', { entity: 'mile', id: editing.id, data });
+        const updated = normalizeLoadedData({ mile: [{ ...editing, ...data, id: editing.id }] }).mile[0];
+        setMile((current) => current.map((row) => row.id === editing.id ? updated : row));
         setNotice('Movimiento actualizado correctamente.');
       } else {
-        await sheetsRequest('create', { entity: 'mile', data });
+        const response = await sheetsRequest('create', { entity: 'mile', data });
+        if (response?.data) {
+          const created = normalizeLoadedData({ mile: [response.data] }).mile[0];
+          setMile((current) => [created, ...current]);
+        }
         setNotice('Movimiento guardado correctamente.');
       }
       setEditing(null);
-      await loadData();
       setActive('historial');
+      loadData({ silent: true });
     } catch (err) {
       setError(err.message || 'No se pudo guardar el movimiento.');
     } finally {
@@ -832,9 +893,13 @@ export default function App() {
     try {
       setSaving(true);
       setError('');
-      await sheetsRequest('create', { entity: 'rafa', data });
+      const response = await sheetsRequest('create', { entity: 'rafa', data });
+      if (response?.data) {
+        const created = normalizeLoadedData({ rafa: [response.data] }).rafa[0];
+        setRafa((current) => [created, ...current]);
+      }
       setNotice('Gasto de Rafa guardado correctamente.');
-      await loadData();
+      loadData({ silent: true });
     } catch (err) {
       setError(err.message || 'No se pudo guardar el gasto de Rafa.');
     } finally {
@@ -850,8 +915,13 @@ export default function App() {
       setSaving(true);
       setError('');
       await sheetsRequest('delete', { entity, id: row.id });
+      if (entity === 'rafa') {
+        setRafa((current) => current.filter((item) => item.id !== row.id));
+      } else {
+        setMile((current) => current.filter((item) => item.id !== row.id));
+      }
       setNotice('Registro borrado correctamente.');
-      await loadData();
+      loadData({ silent: true });
     } catch (err) {
       setError(err.message || 'No se pudo borrar el registro.');
     } finally {
@@ -871,7 +941,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 2I</small>
+            <small>Milena · Fase 2J</small>
           </div>
         </div>
         <nav>
@@ -895,7 +965,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 2I</span>
+          <span className="version" title={APP_VERSION}>Fase 2J</span>
         </header>
 
         <StatusBar
@@ -908,13 +978,13 @@ export default function App() {
           onRefresh={loadData}
         />
 
-        {loading ? <div className="panel loading">Cargando información...</div> : null}
+        {loading && mile.length === 0 && rafa.length === 0 ? <div className="panel loading">Cargando información...</div> : null}
 
-        {!loading && active === 'dashboard' ? (
+        {(active === 'dashboard' && (!loading || mile.length > 0 || rafa.length > 0)) ? (
           <Dashboard mile={mile} rafa={rafa} month={month} setMonth={setMonth} />
         ) : null}
 
-        {!loading && active === 'nuevo' ? (
+        {(active === 'nuevo' && (!loading || mile.length > 0 || rafa.length > 0)) ? (
           <section className="panel">
             <div className="panel-head">
               <div>
@@ -933,7 +1003,7 @@ export default function App() {
           </section>
         ) : null}
 
-        {!loading && active === 'historial' ? (
+        {(active === 'historial' && (!loading || mile.length > 0 || rafa.length > 0)) ? (
           <History
             rows={mile}
             config={config}
@@ -942,7 +1012,7 @@ export default function App() {
           />
         ) : null}
 
-        {!loading && active === 'rafa' ? (
+        {(active === 'rafa' && (!loading || mile.length > 0 || rafa.length > 0)) ? (
           <RafaModule
             rows={rafa}
             config={config}
@@ -952,7 +1022,7 @@ export default function App() {
           />
         ) : null}
 
-        {!loading && active === 'config' ? <ConfigPanel config={config} /> : null}
+        {(active === 'config' && (!loading || mile.length > 0 || rafa.length > 0)) ? <ConfigPanel config={config} /> : null}
       </section>
     </main>
   );

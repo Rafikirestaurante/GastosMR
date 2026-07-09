@@ -1,4 +1,4 @@
-const DEFAULT_TIMEOUT_MS = 25000;
+const DEFAULT_TIMEOUT_MS = 15000;
 
 function readBody(req) {
   if (!req.body) return {};
@@ -68,7 +68,7 @@ export default async function handler(req, res) {
       signal: controller.signal,
       headers: {
         'Accept': 'application/json,text/plain,*/*',
-        'User-Agent': 'Control-Gastos-Milena/2D'
+        'User-Agent': 'Control-Gastos-Milena/2J'
       }
     });
 

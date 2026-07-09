@@ -5,6 +5,7 @@ const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || '';
 const DEMO_KEY = 'control-gastos-milena-demo-v2-tabla-oficial';
 const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v2-tabla-oficial';
 const PROXY_URL = '/api/sheets';
+const DIRECT_TIMEOUT_MS = 15000;
 
 function normalizeOfficialRow(data = {}) {
   const ingreso = parseAmount(data.ingreso);
@@ -204,7 +205,7 @@ function jsonpRequest(action, payload = {}) {
     const timeout = window.setTimeout(() => {
       cleanup();
       reject(new Error('La solicitud a Google Sheets tardó demasiado en este dispositivo. Revisa la conexión del celular o abre nuevamente la app.'));
-    }, 25000);
+    }, DIRECT_TIMEOUT_MS);
 
     function cleanup() {
       window.clearTimeout(timeout);

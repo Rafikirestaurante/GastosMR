@@ -1,5 +1,5 @@
 /************************************************************
- * Control Gastos Milena - Fase 2G
+ * Control Gastos Milena - Fase 2J
  * Backend Google Apps Script para Google Sheets.
  *
  * Hoja principal activa: "Tabla Oficial".
@@ -8,8 +8,8 @@
  * Columnas esperadas en Tabla Oficial:
  * Gastos Fecha | Proveedor | Concepto | Ingreso | Egreso | Categoría | Subcategoría
  *
- * Fase 2F/2G: lectura blindada para dashboard. Soporta valores como
- * $ 1.200.000, 1,200,000 o números con formato de moneda en Sheets.
+ * Fase 2J: lectura optimizada para mejorar apertura y uso en móvil.
+ * Evita leer columnas innecesarias y reduce llamadas duplicadas a la hoja.
  *
  * Instrucciones:
  * 1. Pega este archivo en Apps Script.
@@ -173,23 +173,22 @@ function readRows_(entity) {
   if (lastRow < 2) return [];
 
   if (entity === 'mile') {
-    const width = Math.max(sheet.getLastColumn(), HEADERS.mile.length);
-    const headerRow = sheet.getRange(1, 1, 1, width).getDisplayValues()[0];
+    const headerWidth = Math.max(sheet.getLastColumn(), HEADERS.mile.length);
+    const headerRow = sheet.getRange(1, 1, 1, headerWidth).getDisplayValues()[0];
     const indexes = buildOfficialIndex_(headerRow);
+    const width = Math.max.apply(null, Object.values(indexes)) + 1;
     const values = sheet.getRange(2, 1, lastRow - 1, width).getValues();
-    const displayValues = sheet.getRange(2, 1, lastRow - 1, width).getDisplayValues();
 
     return values
-      .map((row, index) => mapMileRow_(row, index + 2, displayValues[index], indexes))
+      .map((row, index) => mapMileRow_(row, index + 2, null, indexes))
       .filter(row => String(row.id || '').trim() !== '');
   }
 
   const headers = HEADERS[entity];
   const values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
-  const displayValues = sheet.getRange(2, 1, lastRow - 1, headers.length).getDisplayValues();
 
   return values
-    .map((row, index) => mapRafaRow_(row, displayValues[index]))
+    .map((row) => mapRafaRow_(row, null))
     .filter(row => String(row.id || '').trim() !== '');
 }
 
