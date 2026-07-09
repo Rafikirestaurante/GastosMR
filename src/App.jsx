@@ -41,7 +41,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 3A';
+const APP_VERSION = 'Fase 3B';
 const SYNC_DELAY_MS = 2500;
 
 function reloadApp() {
@@ -276,9 +276,13 @@ function readStoredReminders() {
       id: item.id || `rem-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       text: item.text || '',
       dueDate: item.dueDate || '',
+      dueTime: item.dueTime || '',
+      recurrence: item.recurrence || 'none',
+      recurrenceLabel: item.recurrenceLabel || '',
       status: item.status === 'done' ? 'done' : 'pending',
       createdAt: item.createdAt || new Date().toISOString(),
-      completedAt: item.completedAt || ''
+      completedAt: item.completedAt || '',
+      lastCompletedAt: item.lastCompletedAt || ''
     })).filter((item) => item.text.trim());
   } catch {
     return [];
@@ -296,39 +300,290 @@ function addDaysToISO(baseISO, days) {
   return date.toISOString().slice(0, 10);
 }
 
-function parseReminderCommand(rawText) {
-  const original = String(rawText || '').trim();
-  const lower = normalizeText(original);
-  let dueDate = '';
-  const today = todayISO();
+function addMonthsToISO(baseISO, months) {
+  const [year, month, day] = baseISO.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  const originalDay = date.getDate();
+  date.setMonth(date.getMonth() + months);
+  if (date.getDate() !== originalDay) date.setDate(0);
+  return date.toISOString().slice(0, 10);
+}
 
-  if (lower.includes('manana') || lower.includes('mañana')) {
-    dueDate = addDaysToISO(today, 1);
-  } else if (lower.includes('hoy')) {
-    dueDate = today;
-  } else {
-    const dateMatch = original.match(/\b(\d{4}-\d{2}-\d{2})\b/);
-    if (dateMatch) dueDate = dateMatch[1];
+function addYearsToISO(baseISO, years) {
+  const [year, month, day] = baseISO.split('-').map(Number);
+  const date = new Date(year + years, month - 1, day);
+  return date.toISOString().slice(0, 10);
+}
+
+function lastDayOfMonthISO(baseISO) {
+  const [year, month] = baseISO.split('-').map(Number);
+  const date = new Date(year, month, 0);
+  return date.toISOString().slice(0, 10);
+}
+
+function buildISODate(year, month, day) {
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return '';
+  if (m < 1 || m > 12 || d < 1 || d > 31) return '';
+  const date = new Date(y, m - 1, d);
+  if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return '';
+  return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+const SPANISH_MONTHS = {
+  enero: 1,
+  febrero: 2,
+  marzo: 3,
+  abril: 4,
+  mayo: 5,
+  junio: 6,
+  julio: 7,
+  agosto: 8,
+  septiembre: 9,
+  setiembre: 9,
+  octubre: 10,
+  noviembre: 11,
+  diciembre: 12
+};
+
+const WEEKDAYS = {
+  domingo: 0,
+  lunes: 1,
+  martes: 2,
+  miercoles: 3,
+  jueves: 4,
+  viernes: 5,
+  sabado: 6
+};
+
+const NUMBER_WORDS = {
+  un: 1,
+  una: 1,
+  uno: 1,
+  dos: 2,
+  tres: 3,
+  cuatro: 4,
+  cinco: 5,
+  seis: 6,
+  siete: 7,
+  ocho: 8,
+  nueve: 9,
+  diez: 10,
+  once: 11,
+  doce: 12,
+  trece: 13,
+  catorce: 14,
+  quince: 15,
+  veinte: 20,
+  treinta: 30
+};
+
+function parseNumberWord(value) {
+  const normalized = normalizeText(value);
+  if (/^\d+$/.test(normalized)) return Number(normalized);
+  return NUMBER_WORDS[normalized] || 0;
+}
+
+function normalizeYear(yearText, fallbackYear) {
+  if (!yearText) return fallbackYear;
+  const year = Number(yearText);
+  if (!Number.isFinite(year)) return fallbackYear;
+  if (year < 100) return 2000 + year;
+  return year;
+}
+
+function nextWeekdayISO(baseISO, weekday, forceNextWeek = false) {
+  const [year, month, day] = baseISO.split('-').map(Number);
+  const base = new Date(year, month - 1, day);
+  let diff = weekday - base.getDay();
+  if (diff < 0) diff += 7;
+  if (forceNextWeek && diff === 0) diff = 7;
+  if (!forceNextWeek && diff === 0) diff = 7;
+  base.setDate(base.getDate() + diff);
+  return base.toISOString().slice(0, 10);
+}
+
+function parseReminderTime(original) {
+  const lower = normalizeText(original);
+  const explicit = lower.match(/\b(?:a\s+las?|sobre\s+las?)\s+(\d{1,2})(?::(\d{2}))?\s*(a\.?\s*m\.?|p\.?\s*m\.?|am|pm)?\b/);
+  if (explicit) {
+    let hour = Number(explicit[1]);
+    const minute = Number(explicit[2] || '0');
+    const meridian = String(explicit[3] || '').replace(/[\s.]/g, '');
+    if (meridian === 'pm' && hour < 12) hour += 12;
+    if (meridian === 'am' && hour === 12) hour = 0;
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return {
+        dueTime: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+        label: explicit[0],
+        phrase: explicit[0]
+      };
+    }
   }
 
-  const cleaned = original
-    .replace(/^(crear\s+)?(recordatorio|recordar|recuerdame|recuérdame|anotar|nota)\s*(que|de|para)?\s*/i, '')
-    .replace(/\b(hoy|mañana|manana)\b/gi, '')
-    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, '')
+  const dayParts = [
+    { pattern: /\b(en|por)\s+la\s+manana\b|\b(en|por)\s+la\s+mañana\b|\btemprano\b/, dueTime: '09:00', label: 'en la mañana' },
+    { pattern: /\b(en|por)\s+la\s+tarde\b/, dueTime: '15:00', label: 'en la tarde' },
+    { pattern: /\b(en|por)\s+la\s+noche\b/, dueTime: '19:00', label: 'en la noche' },
+    { pattern: /\bmedio\s*dia\b|\bmediodia\b|\bmedio\s*día\b|\bmediodía\b/, dueTime: '12:00', label: 'al mediodía' }
+  ];
+
+  for (const part of dayParts) {
+    const match = lower.match(part.pattern);
+    if (match) return { dueTime: part.dueTime, label: part.label, phrase: match[0] };
+  }
+
+  return { dueTime: '', label: '', phrase: '' };
+}
+
+function parseReminderRecurrence(original) {
+  const lower = normalizeText(original);
+  const options = [
+    { pattern: /\b(cada\s+dia|cada\s+día|diario|diaria|todos\s+los\s+dias|todos\s+los\s+días)\b/, recurrence: 'daily', label: 'Cada día' },
+    { pattern: /\b(cada\s+semana|semanal|todas\s+las\s+semanas)\b/, recurrence: 'weekly', label: 'Cada semana' },
+    { pattern: /\b(cada\s+mes|mensual|todos\s+los\s+meses)\b/, recurrence: 'monthly', label: 'Cada mes' },
+    { pattern: /\b(cada\s+ano|cada\s+año|anual|todos\s+los\s+anos|todos\s+los\s+años)\b/, recurrence: 'yearly', label: 'Cada año' }
+  ];
+
+  for (const option of options) {
+    const match = lower.match(option.pattern);
+    if (match) return { recurrence: option.recurrence, recurrenceLabel: option.label, phrase: match[0] };
+  }
+  return { recurrence: 'none', recurrenceLabel: '', phrase: '' };
+}
+
+function parseReminderDate(original) {
+  const today = todayISO();
+  const currentYear = Number(today.slice(0, 4));
+  const lower = normalizeText(original);
+
+  const isoMatch = original.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (isoMatch) {
+    return { dueDate: buildISODate(isoMatch[1], isoMatch[2], isoMatch[3]), phrase: isoMatch[0] };
+  }
+
+  const colombianMatch = original.match(/\b(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?\b/);
+  if (colombianMatch) {
+    const year = normalizeYear(colombianMatch[3], currentYear);
+    return { dueDate: buildISODate(year, colombianMatch[2], colombianMatch[1]), phrase: colombianMatch[0] };
+  }
+
+  const monthNames = Object.keys(SPANISH_MONTHS).join('|');
+  const monthNameMatch = lower.match(new RegExp(`\\b(?:el\\s+)?(\\d{1,2})\\s+de\\s+(${monthNames})(?:\\s+de\\s+(\\d{2,4}))?\\b`));
+  if (monthNameMatch) {
+    const year = normalizeYear(monthNameMatch[3], currentYear);
+    return {
+      dueDate: buildISODate(year, SPANISH_MONTHS[monthNameMatch[2]], monthNameMatch[1]),
+      phrase: monthNameMatch[0]
+    };
+  }
+
+  const relativeMatch = lower.match(/\ben\s+(\d+|un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|veinte|treinta)\s+(dia|dias|día|días|semana|semanas|mes|meses|ano|anos|año|años)\b/);
+  if (relativeMatch) {
+    const amount = parseNumberWord(relativeMatch[1]);
+    const unit = normalizeText(relativeMatch[2]);
+    if (amount > 0 && (unit === 'dia' || unit === 'dias')) return { dueDate: addDaysToISO(today, amount), phrase: relativeMatch[0] };
+    if (amount > 0 && unit.startsWith('semana')) return { dueDate: addDaysToISO(today, amount * 7), phrase: relativeMatch[0] };
+    if (amount > 0 && unit.startsWith('mes')) return { dueDate: addMonthsToISO(today, amount), phrase: relativeMatch[0] };
+    if (amount > 0 && (unit === 'ano' || unit === 'anos')) return { dueDate: addYearsToISO(today, amount), phrase: relativeMatch[0] };
+  }
+
+  if (/\bpasado\s+manana\b|\bpasado\s+mañana\b/.test(lower)) return { dueDate: addDaysToISO(today, 2), phrase: 'pasado mañana' };
+  if (/\bmanana\b|\bmañana\b/.test(lower)) return { dueDate: addDaysToISO(today, 1), phrase: 'mañana' };
+  if (/\bhoy\b/.test(lower)) return { dueDate: today, phrase: 'hoy' };
+  if (/\bfin\s+de\s+mes\b|\bfinal\s+de\s+mes\b|\bfinales\s+de\s+mes\b/.test(lower)) return { dueDate: lastDayOfMonthISO(today), phrase: 'fin de mes' };
+  if (/\bquincena\b|\bmitad\s+de\s+mes\b/.test(lower)) return { dueDate: buildISODate(currentYear, Number(today.slice(5, 7)), 15), phrase: 'quincena' };
+  if (/\bla\s+proxima\s+semana\b|\bla\s+próxima\s+semana\b|\bla\s+otra\s+semana\b/.test(lower)) return { dueDate: addDaysToISO(today, 7), phrase: 'próxima semana' };
+
+  if (/\bfin\s+de\s+semana\b/.test(lower)) {
+    return { dueDate: nextWeekdayISO(today, 6, true), phrase: 'fin de semana' };
+  }
+
+  const weekdayNames = Object.keys(WEEKDAYS).join('|');
+  const weekdayMatch = lower.match(new RegExp(`\\b(?:el\\s+)?(?:(proximo|próximo|prox|siguiente)\\s+)?(${weekdayNames})\\b`));
+  if (weekdayMatch) {
+    return {
+      dueDate: nextWeekdayISO(today, WEEKDAYS[weekdayMatch[2]], Boolean(weekdayMatch[1])),
+      phrase: weekdayMatch[0]
+    };
+  }
+
+  return { dueDate: '', phrase: '' };
+}
+
+function cleanReminderText(original) {
+  const monthNames = Object.keys(SPANISH_MONTHS).join('|');
+  const weekdayNames = 'domingo|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado';
+  const numberWords = 'un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|veinte|treinta';
+
+  return String(original || '')
+    .replace(/^(crear\s+)?(recordatorio|recordar|recuerdame|recuérdame|anotar|nota|agenda|agendar)\s*(que|de|para)?\s*/i, '')
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ')
+    .replace(/\b\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b/g, ' ')
+    .replace(new RegExp(`\\b(?:el\\s+)?\\d{1,2}\\s+de\\s+(${monthNames})(?:\\s+de\\s+\\d{2,4})?\\b`, 'gi'), ' ')
+    .replace(new RegExp(`\\ben\\s+(\\d+|${numberWords})\\s+(dia|dias|día|días|semana|semanas|mes|meses|ano|anos|año|años)\\b`, 'gi'), ' ')
+    .replace(/\bpasado\s+ma[nñ]ana\b|\bma[nñ]ana\b|\bhoy\b/gi, ' ')
+    .replace(/\bfin\s+de\s+mes\b|\bfinal\s+de\s+mes\b|\bfinales\s+de\s+mes\b|\bquincena\b|\bmitad\s+de\s+mes\b/gi, ' ')
+    .replace(/\bla\s+pr[oó]xima\s+semana\b|\bla\s+otra\s+semana\b|\bfin\s+de\s+semana\b/gi, ' ')
+    .replace(new RegExp(`\\b(?:el\\s+)?(?:(proximo|próximo|prox|siguiente)\\s+)?(${weekdayNames})\\b`, 'gi'), ' ')
+    .replace(/\b(?:a\s+las?|sobre\s+las?)\s+\d{1,2}(?::\d{2})?\s*(a\.?\s*m\.?|p\.?\s*m\.?|am|pm)?\b/gi, ' ')
+    .replace(/\b(en|por)\s+la\s+ma[nñ]ana\b|\b(en|por)\s+la\s+tarde\b|\b(en|por)\s+la\s+noche\b|\btemprano\b|\bmedio\s*d[ií]a\b|\bmediod[ií]a\b/gi, ' ')
+    .replace(/\b(cada\s+d[ií]a|diario|diaria|todos\s+los\s+d[ií]as|cada\s+semana|semanal|todas\s+las\s+semanas|cada\s+mes|mensual|todos\s+los\s+meses|cada\s+a[nñ]o|anual|todos\s+los\s+a[nñ]os)\b/gi, ' ')
+    .replace(/\b(el|la|los|las|para|por|en|a)\s*$/i, '')
     .replace(/\s+/g, ' ')
+    .replace(/\s+([,.])/g, '$1')
     .trim();
+}
+
+function parseReminderCommand(rawText) {
+  const original = String(rawText || '').trim();
+  const dateInfo = parseReminderDate(original);
+  const timeInfo = parseReminderTime(original);
+  const recurrenceInfo = parseReminderRecurrence(original);
+  const cleaned = cleanReminderText(original);
 
   return {
     text: cleaned || original,
-    dueDate
+    dueDate: dateInfo.dueDate,
+    dueTime: timeInfo.dueTime,
+    recurrence: recurrenceInfo.recurrence,
+    recurrenceLabel: recurrenceInfo.recurrenceLabel
   };
 }
 
-function formatReminderDate(dueDate) {
-  if (!dueDate) return 'Sin fecha';
-  if (dueDate === todayISO()) return 'Hoy';
-  if (dueDate === addDaysToISO(todayISO(), 1)) return 'Mañana';
-  return formatShortDate(dueDate);
+function formatReminderTime(dueTime) {
+  if (!dueTime) return '';
+  const [hourText, minuteText] = dueTime.split(':');
+  let hour = Number(hourText);
+  const minute = minuteText || '00';
+  const suffix = hour >= 12 ? 'p. m.' : 'a. m.';
+  hour = hour % 12 || 12;
+  return `${hour}:${minute} ${suffix}`;
+}
+
+function formatReminderDate(dueDate, dueTime = '', recurrenceLabel = '') {
+  const dateText = (() => {
+    if (!dueDate) return 'Sin fecha';
+    if (dueDate === todayISO()) return 'Hoy';
+    if (dueDate === addDaysToISO(todayISO(), 1)) return 'Mañana';
+    return formatShortDate(dueDate);
+  })();
+  const timeText = formatReminderTime(dueTime);
+  const parts = [dateText];
+  if (timeText) parts.push(timeText);
+  if (recurrenceLabel) parts.push(recurrenceLabel);
+  return parts.join(' · ');
+}
+
+function getNextRecurrenceDate(reminder) {
+  const base = reminder?.dueDate || todayISO();
+  if (reminder?.recurrence === 'daily') return addDaysToISO(base, 1);
+  if (reminder?.recurrence === 'weekly') return addDaysToISO(base, 7);
+  if (reminder?.recurrence === 'monthly') return addMonthsToISO(base, 1);
+  if (reminder?.recurrence === 'yearly') return addYearsToISO(base, 1);
+  return '';
 }
 
 function ReminderAssistant() {
@@ -339,7 +594,7 @@ function ReminderAssistant() {
     {
       id: 'welcome',
       role: 'bot',
-      text: 'Hola, soy el asistente de recordatorios. Puedes escribirme: “Recordar pagar arriendo mañana” o “Recordar llamar al proveedor 2026-07-15”.'
+      text: 'Hola, soy el asistente de recordatorios. Puedes escribirme: “Recordar pagar arriendo mañana en la tarde”, “Recordar llamar al proveedor 15/07/26” o “Recordar revisar pagos cada mes”.'
     }
   ]);
   const listRef = useRef(null);
@@ -355,7 +610,7 @@ function ReminderAssistant() {
 
   const pendingReminders = reminders
     .filter((item) => item.status !== 'done')
-    .sort((a, b) => String(a.dueDate || '9999-99-99').localeCompare(String(b.dueDate || '9999-99-99')) || String(a.createdAt).localeCompare(String(b.createdAt)));
+    .sort((a, b) => `${a.dueDate || '9999-99-99'} ${a.dueTime || '99:99'}`.localeCompare(`${b.dueDate || '9999-99-99'} ${b.dueTime || '99:99'}`) || String(a.createdAt).localeCompare(String(b.createdAt)));
   const doneReminders = reminders
     .filter((item) => item.status === 'done')
     .sort((a, b) => String(b.completedAt || b.createdAt).localeCompare(String(a.completedAt || a.createdAt)))
@@ -372,6 +627,9 @@ function ReminderAssistant() {
       id: `rem-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       text: parsed.text,
       dueDate: parsed.dueDate,
+      dueTime: parsed.dueTime,
+      recurrence: parsed.recurrence,
+      recurrenceLabel: parsed.recurrenceLabel,
       status: 'pending',
       createdAt: new Date().toISOString(),
       completedAt: ''
@@ -384,7 +642,7 @@ function ReminderAssistant() {
       {
         id: `bot-${Date.now()}`,
         role: 'bot',
-        text: `Listo. Guardé el recordatorio: “${newReminder.text}” (${formatReminderDate(newReminder.dueDate)}).`
+        text: `Listo. Guardé el recordatorio: “${newReminder.text}” (${formatReminderDate(newReminder.dueDate, newReminder.dueTime, newReminder.recurrenceLabel)}).`
       }
     ]);
     setInput('');
@@ -392,15 +650,35 @@ function ReminderAssistant() {
 
   function completeReminder(id) {
     const reminder = reminders.find((item) => item.id === id);
-    setReminders((current) => current.map((item) => (
-      item.id === id ? { ...item, status: 'done', completedAt: new Date().toISOString() } : item
-    )));
-    if (reminder) {
-      setMessages((current) => [
-        ...current,
-        { id: `bot-done-${Date.now()}`, role: 'bot', text: `Marcado como completado: “${reminder.text}”.` }
-      ]);
-    }
+    if (!reminder) return;
+
+    const completedAt = new Date().toISOString();
+    const nextDueDate = getNextRecurrenceDate(reminder);
+
+    setReminders((current) => current.map((item) => {
+      if (item.id !== id) return item;
+      if (nextDueDate) {
+        return {
+          ...item,
+          dueDate: nextDueDate,
+          status: 'pending',
+          completedAt: '',
+          lastCompletedAt: completedAt
+        };
+      }
+      return { ...item, status: 'done', completedAt };
+    }));
+
+    setMessages((current) => [
+      ...current,
+      {
+        id: `bot-done-${Date.now()}`,
+        role: 'bot',
+        text: nextDueDate
+          ? `Listo. Completé “${reminder.text}” y lo dejé programado nuevamente para ${formatReminderDate(nextDueDate, reminder.dueTime, reminder.recurrenceLabel)}.`
+          : `Marcado como completado: “${reminder.text}”.`
+      }
+    ]);
   }
 
   function deleteReminder(id) {
@@ -441,7 +719,7 @@ function ReminderAssistant() {
             <input
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="Ej: Recordar pagar luz mañana"
+              placeholder="Ej: Recordar pagar luz 15/07 en la tarde"
             />
             <button type="submit">Guardar</button>
           </form>
@@ -453,7 +731,7 @@ function ReminderAssistant() {
               <article key={item.id} className="assistant-reminder-card">
                 <div>
                   <strong>{item.text}</strong>
-                  <span>{formatReminderDate(item.dueDate)}</span>
+                  <span>{formatReminderDate(item.dueDate, item.dueTime, item.recurrenceLabel)}</span>
                 </div>
                 <div className="assistant-reminder-actions">
                   <button type="button" onClick={() => completeReminder(item.id)}>✓</button>
@@ -1493,7 +1771,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 3A</span>
+          <span className="version" title={APP_VERSION}>Fase 3B</span>
         </header>
 
         <StatusBar
