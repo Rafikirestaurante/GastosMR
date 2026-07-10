@@ -49,7 +49,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 3F · Configuración persistente';
+const APP_VERSION = 'Fase 4A · Navegación unificada y pendientes';
 const SYNC_DELAY_MS = 2500;
 
 function reloadApp() {
@@ -59,11 +59,11 @@ function reloadApp() {
 }
 
 const navItems = [
-  { id: 'dashboard', label: 'Dashboard', short: 'Inicio' },
-  { id: 'nuevo', label: 'Nuevo registro', short: 'Nuevo' },
-  { id: 'historial', label: 'Tabla Oficial', short: 'Historial' },
-  { id: 'rafa', label: 'Gastos Rafa', short: 'Rafa' },
-  { id: 'config', label: 'Configuración', short: 'Config' }
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'inicio', label: 'Inicio' },
+  { id: 'rafa', label: 'Rafa' },
+  { id: 'pendientes', label: 'Pendientes' },
+  { id: 'config', label: 'Config' }
 ];
 
 
@@ -253,7 +253,7 @@ function DiagnosticPanel({ open, loading, result, onClose }) {
       <div className="diagnostic-card">
         <div className="diagnostic-head">
           <div>
-            <p className="eyebrow">Fase 3F</p>
+            <p className="eyebrow">Fase 4A</p>
             <h2>Diagnóstico de conexión</h2>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar diagnóstico">×</button>
@@ -739,14 +739,14 @@ function getNextRecurrenceDate(reminder) {
   return '';
 }
 
-function ReminderAssistant({ reminders, onCreate, onComplete, onDelete, syncing }) {
+function ReminderAssistant({ onCreate }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([
     {
       id: 'welcome',
       role: 'bot',
-      text: 'Hola, soy el asistente de recordatorios. Puedes escribirme: “Recordar pagar arriendo mañana en la tarde”, “Recordar llamar al proveedor 15/07/26” o “Recordar revisar pagos cada mes”. Ahora también se sincronizan con Google Sheets.'
+      text: 'Hola. Escribe el recordatorio como lo dirías normalmente. Por ejemplo: “Recordar pagar la luz mañana en la tarde”.'
     }
   ]);
   const listRef = useRef(null);
@@ -755,16 +755,6 @@ function ReminderAssistant({ reminders, onCreate, onComplete, onDelete, syncing 
     if (!open || !listRef.current) return;
     listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [messages, open]);
-
-  const pendingReminders = reminders
-    .filter((item) => item.status !== 'done' && item.status !== 'deleted')
-    .sort((a, b) => `${a.dueDate || '9999-99-99'} ${a.dueTime || '99:99'}`.localeCompare(`${b.dueDate || '9999-99-99'} ${b.dueTime || '99:99'}`) || String(a.createdAt).localeCompare(String(b.createdAt)));
-  const doneReminders = reminders
-    .filter((item) => item.status === 'done')
-    .sort((a, b) => String(b.completedAt || b.createdAt).localeCompare(String(a.completedAt || a.createdAt)))
-    .slice(0, 4);
-  const todayCount = pendingReminders.filter((item) => item.dueDate === todayISO()).length;
-  const pendingRemoteCount = reminders.filter((item) => ['pending', 'syncing', 'failed'].includes(item.syncStatus)).length;
 
   function sendMessage(event) {
     event?.preventDefault();
@@ -780,55 +770,23 @@ function ReminderAssistant({ reminders, onCreate, onComplete, onDelete, syncing 
       {
         id: `bot-${Date.now()}`,
         role: 'bot',
-        text: `Listo. Guardé el recordatorio: “${newReminder.text}” (${formatReminderDate(newReminder.dueDate, newReminder.dueTime, newReminder.recurrenceLabel)}). Quedó guardado localmente y se sincronizará con Google Sheets.`
+        text: `Listo. Guardé “${newReminder.text}” para ${formatReminderDate(newReminder.dueDate, newReminder.dueTime, newReminder.recurrenceLabel)}. Puedes editarlo, completarlo o borrarlo desde Pendientes.`
       }
     ]);
     setInput('');
   }
 
-  function completeReminder(id) {
-    const result = onComplete(id);
-    if (!result) return;
-
-    setMessages((current) => [
-      ...current,
-      {
-        id: `bot-done-${Date.now()}`,
-        role: 'bot',
-        text: result.nextDueDate
-          ? `Listo. Completé “${result.text}” y lo dejé programado nuevamente para ${formatReminderDate(result.nextDueDate, result.dueTime, result.recurrenceLabel)}.`
-          : `Marcado como completado: “${result.text}”.`
-      }
-    ]);
-  }
-
-  function deleteReminder(id) {
-    const deleted = onDelete(id);
-    if (deleted) {
-      setMessages((current) => [
-        ...current,
-        { id: `bot-del-${Date.now()}`, role: 'bot', text: `Eliminé el recordatorio: “${deleted.text}”.` }
-      ]);
-    }
-  }
-
   return (
     <div className={`assistant-widget ${open ? 'open' : ''}`}>
       {open ? (
-        <section className="assistant-panel" aria-label="Asistente de recordatorios">
+        <section className="assistant-panel assistant-panel-simple" aria-label="Asistente de recordatorios">
           <header className="assistant-header">
             <div>
               <span>Asistente</span>
-              <strong>Recordatorios</strong>
+              <strong>Crear recordatorio</strong>
             </div>
             <button type="button" className="assistant-close" onClick={() => setOpen(false)} aria-label="Cerrar asistente">×</button>
           </header>
-
-          <div className="assistant-summary">
-            <span>{pendingReminders.length} pendiente(s)</span>
-            {todayCount > 0 ? <strong>{todayCount} para hoy</strong> : <strong>Sin urgentes</strong>}
-            {pendingRemoteCount > 0 ? <small title="Recordatorios pendientes de sincronizar con Google Sheets">{syncing ? 'Sincronizando' : `${pendingRemoteCount} por sincronizar`}</small> : <small>En Sheets</small>}
-          </div>
 
           <div className="assistant-messages" ref={listRef}>
             {messages.map((message) => (
@@ -840,45 +798,16 @@ function ReminderAssistant({ reminders, onCreate, onComplete, onDelete, syncing 
             <input
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="Ej: Recordar pagar luz 15/07 en la tarde"
+              placeholder="Escribe un recordatorio..."
+              aria-label="Escribir recordatorio"
             />
             <button type="submit">Guardar</button>
           </form>
-
-          <div className="assistant-reminders">
-            <h3>Pendientes</h3>
-            {pendingReminders.length === 0 ? <p className="empty-small">No hay recordatorios pendientes.</p> : null}
-            {pendingReminders.slice(0, 6).map((item) => (
-              <article key={item.id} className="assistant-reminder-card">
-                <div>
-                  <strong>{item.text}</strong>
-                  <span>{formatReminderDate(item.dueDate, item.dueTime, item.recurrenceLabel)} · <SyncPill row={item} /></span>
-                  {item.syncError ? <small className="danger-text">{item.syncError}</small> : null}
-                </div>
-                <div className="assistant-reminder-actions">
-                  <button type="button" onClick={() => completeReminder(item.id)}>✓</button>
-                  <button type="button" className="danger-mini" onClick={() => deleteReminder(item.id)}>×</button>
-                </div>
-              </article>
-            ))}
-
-            {doneReminders.length > 0 ? <h3>Completados recientes</h3> : null}
-            {doneReminders.map((item) => (
-              <article key={item.id} className="assistant-reminder-card done">
-                <div>
-                  <strong>{item.text}</strong>
-                  <span>Completado · <SyncPill row={item} /></span>
-                </div>
-                <button type="button" className="danger-mini" onClick={() => deleteReminder(item.id)}>×</button>
-              </article>
-            ))}
-          </div>
         </section>
       ) : null}
 
       <button type="button" className="assistant-fab" onClick={() => setOpen((current) => !current)} aria-label="Abrir asistente de recordatorios">
         <span>💬</span>
-        {pendingReminders.length > 0 ? <em>{pendingReminders.length}</em> : null}
       </button>
     </div>
   );
@@ -1203,16 +1132,31 @@ function MileForm({ config, initialData, editingId, onCancel, onSubmit, saving }
   );
 }
 
-function History({ rows, config, onEdit, onDelete }) {
+function InicioModule({ rows, config, editing, formOpen, setFormOpen, saving, onSave, onCancelEdit, onEdit, onDelete }) {
   const [query, setQuery] = useState('');
   const [type, setType] = useState('');
   const [category, setCategory] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [viewMode, setViewMode] = useState(() => window.localStorage.getItem('control-gastos-inicio-view') || 'table');
+
+  useEffect(() => {
+    window.localStorage.setItem('control-gastos-inicio-view', viewMode);
+  }, [viewMode]);
+
+  const rowsWithBalance = useMemo(() => {
+    let runningBalance = 0;
+    return [...rows]
+      .sort(compareOfficialRowsAsc)
+      .map((row) => {
+        runningBalance += getIngreso(row) - getEgreso(row);
+        return { ...row, saldoAcumulado: runningBalance };
+      });
+  }, [rows]);
 
   const filtered = useMemo(() => {
     const q = normalizeText(query);
-    return rows
+    return rowsWithBalance
       .filter((row) => {
         const matchesQuery = !q || [row.proveedor, row.concepto, row.categoria, row.subcategoria, row.id]
           .some((value) => normalizeText(value).includes(q));
@@ -1223,102 +1167,310 @@ function History({ rows, config, onEdit, onDelete }) {
         return matchesQuery && matchesType && matchesCategory && matchesFrom && matchesTo;
       })
       .sort((a, b) => getRowDateKey(b).localeCompare(getRowDateKey(a)) || String(b.id).localeCompare(String(a.id)));
-  }, [rows, query, type, category, from, to]);
+  }, [rowsWithBalance, query, type, category, from, to]);
+
+  function openNewRecord() {
+    onCancelEdit();
+    setFormOpen(true);
+  }
 
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <div>
-          <p className="eyebrow">Base de datos principal</p>
-          <h2>Tabla Oficial</h2>
+    <>
+      <section className="panel home-header-panel">
+        <div className="panel-head home-main-head">
+          <div>
+            <p className="eyebrow">Tabla Oficial</p>
+            <h2>Inicio</h2>
+            <p className="muted home-description">Registra movimientos y consulta el historial desde un solo lugar.</p>
+          </div>
+          <button type="button" onClick={formOpen ? () => { onCancelEdit(); setFormOpen(false); } : openNewRecord}>
+            {formOpen ? 'Cerrar formulario' : '+ Nuevo registro'}
+          </button>
         </div>
-        <strong>{filtered.length} registros</strong>
-      </div>
+      </section>
 
-      <div className="filters">
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por concepto, proveedor o ID" />
-        <select value={type} onChange={(event) => setType(event.target.value)}>
-          <option value="">Tipo: todos</option>
-          {config.tiposMovimiento.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-        <select value={category} onChange={(event) => setCategory(event.target.value)}>
-          <option value="">Categoría: todas</option>
-          {config.categorias.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-        <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
-        <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
-      </div>
+      {formOpen ? (
+        <section className="panel home-form-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Nuevo registro</p>
+              <h2>{editing ? `Editando ${editing.id}` : 'Nuevo movimiento'}</h2>
+            </div>
+          </div>
+          <MileForm
+            config={config}
+            initialData={editing || emptyMile}
+            editingId={editing?.id}
+            saving={saving}
+            onSubmit={onSave}
+            onCancel={() => { onCancelEdit(); setFormOpen(false); }}
+          />
+        </section>
+      ) : null}
 
-      <div className="mobile-records" aria-label="Tabla Oficial en tarjetas">
-        {filtered.map((row) => (
-          <article className="mobile-record" key={`mobile-${row.id}`}>
-            <div className="mobile-record-head">
-              <div>
-                <strong>{row.concepto}</strong>
-                <span>{row.fecha} · {row.id}</span>
-              </div>
-              <em className={getIngreso(row) > 0 ? 'income' : 'expense'}>
-                {getIngreso(row) > 0 ? '+' : '-'}{money(getMovementAmount(row))}
-              </em>
+      <section className="panel">
+        <div className="panel-head history-heading">
+          <div>
+            <p className="eyebrow">Historial de movimientos</p>
+            <h2>Tabla principal</h2>
+          </div>
+          <div className="history-head-actions">
+            <strong>{filtered.length} registros</strong>
+            <div className="view-switch" role="group" aria-label="Cambiar vista del historial">
+              <button type="button" className={viewMode === 'table' ? 'active' : ''} onClick={() => setViewMode('table')}>Tabla</button>
+              <button type="button" className={viewMode === 'cards' ? 'active' : ''} onClick={() => setViewMode('cards')}>Tarjetas</button>
             </div>
-            <div className="mobile-record-meta">
-              <span><b>Proveedor:</b> {row.proveedor}</span>
-              <span><b>Ingreso:</b> {money(getIngreso(row))}</span>
-              <span><b>Egreso:</b> {money(getEgreso(row))}</span>
-              <span><b>Categoría:</b> {row.categoria || 'Sin categoría'}</span>
-              <span><b>Subcategoría:</b> {row.subcategoria || 'Sin subcategoría'}</span>
-              <span><b>Sincronización:</b> <SyncPill row={row} /></span>
-              {row.syncError ? <span><b>Error:</b> {row.syncError}</span> : null}
-            </div>
-            <div className="row-actions mobile-actions">
-              <button className="small" type="button" onClick={() => onEdit(row)}>Editar</button>
-              <button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button>
-            </div>
-          </article>
-        ))}
-        {filtered.length === 0 ? <div className="empty mobile-empty">No hay registros con esos filtros.</div> : null}
-      </div>
+          </div>
+        </div>
 
-      <div className="table-wrap desktop-table">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Fecha</th>
-              <th>Proveedor</th>
-              <th>Concepto</th>
-              <th>Ingreso</th>
-              <th>Egreso</th>
-              <th>Categoría</th>
-              <th>Subcategoría</th>
-              <th>Sync</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
+        <div className="filters">
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por concepto, proveedor o ID" />
+          <select value={type} onChange={(event) => setType(event.target.value)}>
+            <option value="">Tipo: todos</option>
+            {config.tiposMovimiento.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <select value={category} onChange={(event) => setCategory(event.target.value)}>
+            <option value="">Categoría: todas</option>
+            {config.categorias.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} aria-label="Fecha desde" />
+          <input type="date" value={to} onChange={(event) => setTo(event.target.value)} aria-label="Fecha hasta" />
+        </div>
+
+        {viewMode === 'cards' ? (
+          <div className="history-card-grid" aria-label="Historial en tarjetas">
             {filtered.map((row) => (
-              <tr key={row.id}>
-                <td>{row.id}</td>
-                <td>{row.fecha}</td>
-                <td>{row.proveedor}</td>
-                <td>{row.concepto}</td>
-                <td className="income-cell">{getIngreso(row) > 0 ? money(getIngreso(row)) : '-'}</td>
-                <td className="expense-cell">{getEgreso(row) > 0 ? money(getEgreso(row)) : '-'}</td>
-                <td>{row.categoria || '-'}</td>
-                <td>{row.subcategoria || '-'}</td>
-                <td><SyncPill row={row} /></td>
-                <td className="row-actions">
+              <article className="history-card" key={`card-${row.id}`}>
+                <div className="mobile-record-head">
+                  <div>
+                    <strong>{row.concepto}</strong>
+                    <span>{formatShortDate(row.fecha)} · {row.id}</span>
+                  </div>
+                  <em className={getIngreso(row) > 0 ? 'income' : 'expense'}>
+                    {getIngreso(row) > 0 ? '+' : '-'}{money(getMovementAmount(row))}
+                  </em>
+                </div>
+                <div className="mobile-record-meta">
+                  <span><b>Proveedor:</b> {row.proveedor}</span>
+                  <span><b>Ingreso:</b> {getIngreso(row) > 0 ? money(getIngreso(row)) : '-'}</span>
+                  <span><b>Egreso:</b> {getEgreso(row) > 0 ? money(getEgreso(row)) : '-'}</span>
+                  <span className="balance-card-line"><b>Saldo acumulado:</b> {money(row.saldoAcumulado)}</span>
+                  <span><b>Categoría:</b> {row.categoria || 'Sin categoría'}</span>
+                  <span><b>Subcategoría:</b> {row.subcategoria || 'Sin subcategoría'}</span>
+                  <span><b>Sincronización:</b> <SyncPill row={row} /></span>
+                  {row.syncError ? <span className="danger-text"><b>Error:</b> {row.syncError}</span> : null}
+                </div>
+                <div className="row-actions mobile-actions">
                   <button className="small" type="button" onClick={() => onEdit(row)}>Editar</button>
                   <button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button>
-                </td>
-              </tr>
+                </div>
+              </article>
             ))}
-            {filtered.length === 0 ? (
-              <tr><td colSpan="10" className="empty">No hay registros con esos filtros.</td></tr>
-            ) : null}
-          </tbody>
-        </table>
+            {filtered.length === 0 ? <div className="empty mobile-empty">No hay registros con esos filtros.</div> : null}
+          </div>
+        ) : (
+          <>
+            <p className="table-scroll-hint">Desliza la tabla hacia los lados para ver más columnas.</p>
+            <div className="table-wrap home-history-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Fecha</th>
+                    <th>Proveedor</th>
+                    <th>Concepto</th>
+                    <th>Ingreso</th>
+                    <th>Egreso</th>
+                    <th>Saldo acumulado</th>
+                    <th>Categoría</th>
+                    <th>Subcategoría</th>
+                    <th>Sync</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.id}</td>
+                      <td>{formatShortDate(row.fecha)}</td>
+                      <td>{row.proveedor}</td>
+                      <td>{row.concepto}</td>
+                      <td className="income-cell">{getIngreso(row) > 0 ? money(getIngreso(row)) : '-'}</td>
+                      <td className="expense-cell">{getEgreso(row) > 0 ? money(getEgreso(row)) : '-'}</td>
+                      <td className="balance-cell">{money(row.saldoAcumulado)}</td>
+                      <td>{row.categoria || '-'}</td>
+                      <td>{row.subcategoria || '-'}</td>
+                      <td><SyncPill row={row} /></td>
+                      <td className="row-actions">
+                        <button className="small" type="button" onClick={() => onEdit(row)}>Editar</button>
+                        <button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button>
+                      </td>
+                    </tr>
+                  ))}
+                  {filtered.length === 0 ? (
+                    <tr><td colSpan="11" className="empty">No hay registros con esos filtros.</td></tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </section>
+    </>
+  );
+}
+
+function getReminderSortKey(reminder) {
+  return `${reminder.dueDate || '9999-12-31'} ${reminder.dueTime || '23:59'} ${reminder.createdAt || ''}`;
+}
+
+function getReminderState(reminder) {
+  if (!reminder.dueDate) return { label: 'Sin fecha', className: 'neutral' };
+  const today = todayISO();
+  if (reminder.dueDate < today) return { label: 'Vencido', className: 'overdue' };
+  if (reminder.dueDate === today) return { label: 'Para hoy', className: 'today' };
+  if (reminder.dueDate === addDaysToISO(today, 1)) return { label: 'Para mañana', className: 'soon' };
+  return { label: 'Programado', className: 'scheduled' };
+}
+
+function recurrenceLabelFromValue(value) {
+  if (value === 'daily') return 'Cada día';
+  if (value === 'weekly') return 'Cada semana';
+  if (value === 'monthly') return 'Cada mes';
+  if (value === 'yearly') return 'Cada año';
+  return '';
+}
+
+function PendientesModule({ reminders, onUpdate, onComplete, onDelete }) {
+  const [editingId, setEditingId] = useState('');
+  const [form, setForm] = useState(null);
+
+  const pending = useMemo(() => reminders
+    .filter((item) => item.status !== 'done' && item.status !== 'deleted')
+    .sort((a, b) => getReminderSortKey(a).localeCompare(getReminderSortKey(b))), [reminders]);
+
+  const completed = useMemo(() => reminders
+    .filter((item) => item.status === 'done')
+    .sort((a, b) => String(b.completedAt || b.updatedAt || b.createdAt).localeCompare(String(a.completedAt || a.updatedAt || a.createdAt))), [reminders]);
+
+  function startEdit(item) {
+    setEditingId(item.id);
+    setForm({
+      text: item.text,
+      dueDate: item.dueDate || '',
+      dueTime: item.dueTime || '',
+      recurrence: item.recurrence || 'none'
+    });
+  }
+
+  function saveEdit(event) {
+    event.preventDefault();
+    if (!form?.text?.trim()) return;
+    onUpdate(editingId, {
+      text: form.text.trim(),
+      dueDate: form.dueDate,
+      dueTime: form.dueTime,
+      recurrence: form.recurrence,
+      recurrenceLabel: recurrenceLabelFromValue(form.recurrence)
+    });
+    setEditingId('');
+    setForm(null);
+  }
+
+  return (
+    <section className="panel reminders-page">
+      <div className="panel-head">
+        <div>
+          <p className="eyebrow">Tareas del asistente</p>
+          <h2>Pendientes</h2>
+          <p className="muted">Las tareas más próximas aparecen primero. Las que no tienen fecha quedan al final.</p>
+        </div>
+        <div className="reminder-counts">
+          <strong>{pending.length} {pending.length === 1 ? 'pendiente' : 'pendientes'}</strong>
+          <span>{completed.length} completadas</span>
+        </div>
       </div>
+
+      {editingId && form ? (
+        <form className="reminder-edit-form" onSubmit={saveEdit}>
+          <div className="reminder-edit-head">
+            <div>
+              <p className="eyebrow">Editar tarea</p>
+              <h3>Modificar recordatorio</h3>
+            </div>
+            <button type="button" className="secondary" onClick={() => { setEditingId(''); setForm(null); }}>Cancelar</button>
+          </div>
+          <label className="wide">
+            Tarea
+            <textarea value={form.text} onChange={(event) => setForm((current) => ({ ...current, text: event.target.value }))} rows="3" />
+          </label>
+          <label>
+            Fecha
+            <input type="date" value={form.dueDate} onChange={(event) => setForm((current) => ({ ...current, dueDate: event.target.value }))} />
+          </label>
+          <label>
+            Hora
+            <input type="time" value={form.dueTime} onChange={(event) => setForm((current) => ({ ...current, dueTime: event.target.value }))} />
+          </label>
+          <label>
+            Repetición
+            <select value={form.recurrence} onChange={(event) => setForm((current) => ({ ...current, recurrence: event.target.value }))}>
+              <option value="none">No repetir</option>
+              <option value="daily">Cada día</option>
+              <option value="weekly">Cada semana</option>
+              <option value="monthly">Cada mes</option>
+              <option value="yearly">Cada año</option>
+            </select>
+          </label>
+          <div className="actions wide">
+            <button type="submit">Guardar cambios</button>
+          </div>
+        </form>
+      ) : null}
+
+      <div className="reminder-list">
+        {pending.map((item) => {
+          const state = getReminderState(item);
+          return (
+            <article className={`reminder-page-card ${state.className}`} key={item.id}>
+              <div className="reminder-page-main">
+                <div className="reminder-page-title">
+                  <span className={`reminder-state ${state.className}`}>{state.label}</span>
+                  <SyncPill row={item} />
+                </div>
+                <strong>{item.text}</strong>
+                <span>{formatReminderDate(item.dueDate, item.dueTime, item.recurrenceLabel)}</span>
+                {item.syncError ? <small className="danger-text">{item.syncError}</small> : null}
+              </div>
+              <div className="reminder-page-actions">
+                <button type="button" onClick={() => onComplete(item.id)}>Completar</button>
+                <button type="button" className="secondary" onClick={() => startEdit(item)}>Editar</button>
+                <button type="button" className="danger-button" onClick={() => onDelete(item.id)}>Borrar</button>
+              </div>
+            </article>
+          );
+        })}
+        {pending.length === 0 ? <div className="empty reminder-empty">No hay tareas pendientes.</div> : null}
+      </div>
+
+      <details className="completed-reminders" open={completed.length > 0 && pending.length === 0}>
+        <summary>Completadas ({completed.length})</summary>
+        <div className="reminder-list completed-list">
+          {completed.map((item) => (
+            <article className="reminder-page-card completed" key={item.id}>
+              <div className="reminder-page-main">
+                <div className="reminder-page-title"><span className="reminder-state completed">Completada</span><SyncPill row={item} /></div>
+                <strong>{item.text}</strong>
+                <span>{item.completedAt ? `Completada el ${formatShortDate(item.completedAt.slice(0, 10))}` : 'Completada'}</span>
+              </div>
+              <div className="reminder-page-actions">
+                <button type="button" className="danger-button" onClick={() => onDelete(item.id)}>Borrar</button>
+              </div>
+            </article>
+          ))}
+          {completed.length === 0 ? <div className="empty reminder-empty">Todavía no hay tareas completadas.</div> : null}
+        </div>
+      </details>
     </section>
   );
 }
@@ -1509,6 +1661,8 @@ function normalizeLoadedData(data = {}) {
 
 export default function App() {
   const [active, setActive] = useState('dashboard');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [homeFormOpen, setHomeFormOpen] = useState(false);
   const [month, setMonth] = useState(currentMonthKey());
   const [config, setConfig] = useState({ categorias: [], tiposMovimiento: [], subcategorias: [] });
   const [mile, setMile] = useState([]);
@@ -1923,7 +2077,8 @@ export default function App() {
     }
 
     setEditing(null);
-    setActive('historial');
+    setHomeFormOpen(false);
+    setActive('inicio');
   }
 
   function createRafa(data) {
@@ -2032,9 +2187,33 @@ export default function App() {
     return { ...updatedReminder, nextDueDate, text: reminder.text };
   }
 
+  function updateReminder(id, changes) {
+    const reminder = remindersRef.current.find((item) => item.id === id);
+    if (!reminder) return null;
+
+    const updatedReminder = normalizeReminderData({
+      ...reminder,
+      ...changes,
+      updatedAt: new Date().toISOString(),
+      syncStatus: 'pending',
+      syncError: ''
+    });
+
+    setError('');
+    setNotice('Recordatorio actualizado local');
+    setReminders((current) => current.map((item) => item.id === id ? updatedReminder : item));
+    enqueueSyncOperation(createOperation('update', 'reminder', {
+      id,
+      data: updatedReminder,
+      lastKnownUpdatedAt: reminder.updatedAt || ''
+    }));
+    return updatedReminder;
+  }
+
   function deleteReminder(id) {
     const reminder = remindersRef.current.find((item) => item.id === id);
     if (!reminder) return null;
+    if (!window.confirm(`¿Seguro que deseas borrar la tarea “${reminder.text}”?`)) return null;
 
     setError('');
     setNotice('Recordatorio borrado local');
@@ -2048,29 +2227,40 @@ export default function App() {
 
   function startEdit(row) {
     setEditing(row);
-    setActive('nuevo');
+    setHomeFormOpen(true);
+    setActive('inicio');
   }
 
   return (
     <main className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span>GM</span>
-          <div>
-            <strong>Control Gastos</strong>
-            <small>Milena · Fase 3F</small>
+      <aside className={`sidebar ${mobileMenuOpen ? 'menu-open' : ''}`}>
+        <div className="sidebar-head">
+          <div className="brand">
+            <span>GM</span>
+            <div>
+              <strong>Control Gastos</strong>
+              <small>Milena · Fase 4A</small>
+            </div>
           </div>
+          <button
+            type="button"
+            className="mobile-menu-toggle"
+            onClick={() => setMobileMenuOpen((current) => !current)}
+            aria-expanded={mobileMenuOpen}
+            aria-label="Abrir menú de navegación"
+          >
+            <span /> <span /> <span />
+          </button>
         </div>
-        <nav>
+        <nav className={mobileMenuOpen ? 'open' : ''}>
           {navItems.map((item) => (
             <button
               key={item.id}
               className={active === item.id ? 'active' : ''}
               type="button"
-              onClick={() => setActive(item.id)}
+              onClick={() => { setActive(item.id); setMobileMenuOpen(false); }}
             >
-              <span className="nav-label-full">{item.label}</span>
-              <span className="nav-label-short">{item.short}</span>
+              {item.label}
             </button>
           ))}
         </nav>
@@ -2082,7 +2272,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 3F</span>
+          <span className="version" title={APP_VERSION}>Fase 4A</span>
         </header>
 
         <StatusBar
@@ -2110,33 +2300,21 @@ export default function App() {
           <Dashboard mile={mile} rafa={rafa} month={month} setMonth={setMonth} />
         ) : null}
 
-        {(active === 'nuevo' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? (
-          <section className="panel">
-            <div className="panel-head">
-              <div>
-                <p className="eyebrow">Tabla Oficial</p>
-                <h2>{editing ? `Editando ${editing.id}` : 'Nuevo movimiento'}</h2>
-              </div>
-            </div>
-            <MileForm
-              config={config}
-              initialData={editing || emptyMile}
-              editingId={editing?.id}
-              saving={saving}
-              onSubmit={saveMile}
-              onCancel={() => setEditing(null)}
-            />
-          </section>
-        ) : null}
-
-        {(active === 'historial' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? (
-          <History
+        {(active === 'inicio' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? (
+          <InicioModule
             rows={mile}
             config={config}
+            editing={editing}
+            formOpen={homeFormOpen}
+            setFormOpen={setHomeFormOpen}
+            saving={saving}
+            onSave={saveMile}
+            onCancelEdit={() => setEditing(null)}
             onEdit={startEdit}
             onDelete={(row) => deleteRow('mile', row)}
           />
         ) : null}
+
 
         {(active === 'rafa' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? (
           <RafaModule
@@ -2148,6 +2326,15 @@ export default function App() {
           />
         ) : null}
 
+        {(active === 'pendientes' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? (
+          <PendientesModule
+            reminders={reminders}
+            onUpdate={updateReminder}
+            onComplete={completeReminder}
+            onDelete={deleteReminder}
+          />
+        ) : null}
+
         {(active === 'config' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? <ConfigPanel config={config} /> : null}
       </section>
       <DiagnosticPanel
@@ -2156,13 +2343,7 @@ export default function App() {
         result={diagnosticResult}
         onClose={() => setDiagnosticOpen(false)}
       />
-      <ReminderAssistant
-        reminders={reminders}
-        onCreate={createReminder}
-        onComplete={completeReminder}
-        onDelete={deleteReminder}
-        syncing={syncing}
-      />
+      <ReminderAssistant onCreate={createReminder} />
     </main>
   );
 }

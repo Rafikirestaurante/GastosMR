@@ -2,7 +2,7 @@ import { normalizeText, parseAmount, todayISO } from '../utils/format.js';
 
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || '';
 const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || '';
-export const FRONTEND_VERSION = '1.6.5-fase-3f-configuracion-persistente';
+export const FRONTEND_VERSION = '1.7.0-fase-4a-navegacion-pendientes';
 export const EXPECTED_BACKEND_VERSION = '1.6.5-fase-3f-configuracion-persistente';
 
 const DEMO_KEY = 'control-gastos-milena-demo-v3e-blindaje';
