@@ -2,8 +2,8 @@ import { normalizeText, parseAmount, todayISO } from '../utils/format.js';
 
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || '';
 const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || '';
-export const FRONTEND_VERSION = '1.6.4-fase-3e-blindaje-conexion';
-export const EXPECTED_BACKEND_VERSION = '1.6.4-fase-3e-blindaje-conexion';
+export const FRONTEND_VERSION = '1.6.5-fase-3f-configuracion-persistente';
+export const EXPECTED_BACKEND_VERSION = '1.6.5-fase-3f-configuracion-persistente';
 
 const DEMO_KEY = 'control-gastos-milena-demo-v3e-blindaje';
 const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v3e-blindaje';

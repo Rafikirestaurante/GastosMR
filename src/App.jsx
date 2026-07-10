@@ -49,7 +49,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 3E · Blindaje conexión';
+const APP_VERSION = 'Fase 3F · Configuración persistente';
 const SYNC_DELAY_MS = 2500;
 
 function reloadApp() {
@@ -253,7 +253,7 @@ function DiagnosticPanel({ open, loading, result, onClose }) {
       <div className="diagnostic-card">
         <div className="diagnostic-head">
           <div>
-            <p className="eyebrow">Fase 3E</p>
+            <p className="eyebrow">Fase 3F</p>
             <h2>Diagnóstico de conexión</h2>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar diagnóstico">×</button>
@@ -2058,7 +2058,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 3E</small>
+            <small>Milena · Fase 3F</small>
           </div>
         </div>
         <nav>
@@ -2082,7 +2082,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 3E</span>
+          <span className="version" title={APP_VERSION}>Fase 3F</span>
         </header>
 
         <StatusBar

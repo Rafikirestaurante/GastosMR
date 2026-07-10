@@ -1,5 +1,5 @@
 /************************************************************
- * Control Gastos Milena - Fase 3E
+ * Control Gastos Milena - Fase 3F
  * Backend Google Apps Script para Google Sheets.
  *
  * Hoja principal activa: "Tabla Oficial".
@@ -14,23 +14,35 @@
  * Fase 2K/2L: sincronización segura para uso simultáneo y compatible con cola local.
  * Fase 3C: hoja Recordatorios sincronizada con la misma cola local de la app.
  * Fase 3E: blindaje de conexión, versión obligatoria y diagnóstico automático.
+ * Fase 3F: configuración persistente en Propiedades del Script para evitar perder ID/token al implementar.
  * - ID real por movimiento, sin depender del número de fila.
  * - LockService para crear/editar/borrar sin choques.
  * - Eliminación lógica con Estado = Eliminado.
  * - Control básico de concurrencia con Actualizado_en.
  *
- * Instrucciones:
+ * Instrucciones Fase 3F:
  * 1. Pega este archivo en Apps Script.
- * 2. Ajusta SPREADSHEET_ID y APP_TOKEN.
- * 3. Usa el mismo APP_TOKEN en Vercel/.env.
+ * 2. Ejecuta una sola vez la función instalarConfiguracionFija().
+ * 3. Luego ejecuta probarHoja() para validar acceso al Google Sheet.
  * 4. Despliega como Web App: Ejecutar como Yo / Acceso Cualquier persona.
+ *
+ * Importante: desde esta fase, SPREADSHEET_ID y APP_TOKEN se leen primero
+ * desde Propiedades del Script. Así, al pegar versiones nuevas del código,
+ * la conexión no se rompe por olvidar cambiar estas constantes.
  ************************************************************/
 
-const SPREADSHEET_ID = 'PEGA_AQUI_EL_ID_DE_TU_GOOGLE_SHEET';
-const APP_TOKEN = 'cambia-este-token-largo';
-
 const PROJECT_NAME = 'Control Gastos Milena';
-const BACKEND_VERSION = '1.6.4-fase-3e-blindaje-conexion';
+const BACKEND_VERSION = '1.6.5-fase-3f-configuracion-persistente';
+
+// Valores seguros del proyecto actual. Se usan como respaldo, pero la fuente principal
+// será Propiedades del Script, configurada con instalarConfiguracionFija().
+const DEFAULT_SPREADSHEET_ID = '1f4UO_KTxaYuhUHAKk94CUrGX31lIbii-iwsunVf9C0o';
+const DEFAULT_APP_TOKEN = 'rafa1234';
+
+const CONFIG = readPersistentConfig_();
+const SPREADSHEET_ID = CONFIG.spreadsheetId;
+const APP_TOKEN = CONFIG.appToken;
+const CONFIG_SOURCE = CONFIG.source;
 
 const SHEETS = {
   mile: 'Tabla Oficial',
@@ -79,6 +91,69 @@ const HEADERS = {
   ]
 };
 
+function readPersistentConfig_() {
+  const fallback = {
+    spreadsheetId: DEFAULT_SPREADSHEET_ID,
+    appToken: DEFAULT_APP_TOKEN,
+    source: 'Código fallback'
+  };
+
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const storedSpreadsheetId = String(props.getProperty('SPREADSHEET_ID') || '').trim();
+    const storedAppToken = String(props.getProperty('APP_TOKEN') || '').trim();
+
+    return {
+      spreadsheetId: storedSpreadsheetId || fallback.spreadsheetId,
+      appToken: storedAppToken || fallback.appToken,
+      source: storedSpreadsheetId && storedAppToken ? 'Propiedades del Script' : 'Código fallback'
+    };
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function instalarConfiguracionFija() {
+  PropertiesService.getScriptProperties().setProperties({
+    SPREADSHEET_ID: DEFAULT_SPREADSHEET_ID,
+    APP_TOKEN: DEFAULT_APP_TOKEN
+  }, true);
+
+  Logger.log('Configuración fija guardada en Propiedades del Script.');
+  Logger.log('SPREADSHEET_ID: ' + DEFAULT_SPREADSHEET_ID);
+  Logger.log('APP_TOKEN: ' + maskToken_(DEFAULT_APP_TOKEN));
+  Logger.log('Ahora ejecuta probarHoja() y luego implementa una nueva versión de la app web.');
+}
+
+function verConfiguracionGuardada() {
+  const props = PropertiesService.getScriptProperties();
+  Logger.log('SPREADSHEET_ID guardado: ' + (props.getProperty('SPREADSHEET_ID') || 'No configurado'));
+  Logger.log('APP_TOKEN guardado: ' + maskToken_(props.getProperty('APP_TOKEN') || ''));
+  Logger.log('SPREADSHEET_ID usado por esta ejecución: ' + SPREADSHEET_ID);
+  Logger.log('APP_TOKEN usado por esta ejecución: ' + maskToken_(APP_TOKEN));
+  Logger.log('Fuente de configuración: ' + CONFIG_SOURCE);
+}
+
+function actualizarConfiguracionManual(spreadsheetId, appToken) {
+  const cleanSpreadsheetId = String(spreadsheetId || '').trim();
+  const cleanAppToken = String(appToken || '').trim();
+  if (!cleanSpreadsheetId || !cleanAppToken) {
+    throw new Error('Debes enviar spreadsheetId y appToken.');
+  }
+  PropertiesService.getScriptProperties().setProperties({
+    SPREADSHEET_ID: cleanSpreadsheetId,
+    APP_TOKEN: cleanAppToken
+  }, true);
+  Logger.log('Configuración actualizada manualmente.');
+}
+
+function maskToken_(token) {
+  const text = String(token || '').trim();
+  if (!text) return '';
+  if (text.length <= 4) return '****';
+  return text.slice(0, 2) + '***' + text.slice(-2);
+}
+
 function doGet(e) {
   const params = (e && e.parameter) ? e.parameter : {};
   const callback = sanitizeCallback_(params.callback || '');
@@ -100,6 +175,7 @@ function doGet(e) {
         backendVersion: BACKEND_VERSION,
         configuredSpreadsheetId: maskId_(SPREADSHEET_ID),
         configuredSpreadsheetIdFull: SPREADSHEET_ID,
+        configSource: CONFIG_SOURCE,
         scriptTimeZone: Session.getScriptTimeZone(),
         generatedAt: nowIso_()
       }, callback);
@@ -218,7 +294,9 @@ function buildDiagnostic_() {
     backendVersion: BACKEND_VERSION,
     configuredSpreadsheetId: maskId_(SPREADSHEET_ID),
     configuredSpreadsheetIdFull: SPREADSHEET_ID,
-    tokenConfigured: Boolean(APP_TOKEN && APP_TOKEN !== 'cambia-este-token-largo'),
+    configSource: CONFIG_SOURCE,
+    tokenPreview: maskToken_(APP_TOKEN),
+    tokenConfigured: Boolean(APP_TOKEN),
     scriptTimeZone: Session.getScriptTimeZone(),
     generatedAt: nowIso_(),
     spreadsheet: {

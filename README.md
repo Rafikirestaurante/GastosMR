@@ -1,4 +1,4 @@
-# Control Gastos Milena — Fase 3E
+# Control Gastos Milena — Fase 3F
 
 Aplicación web sencilla para controlar los gastos de Milena usando React + Vite, Vercel y Google Sheets mediante Google Apps Script.
 
@@ -170,7 +170,7 @@ notas/
 La carpeta se mantiene por debajo de 20 archivos.
 
 
-## Fase 3E - Diagnóstico de conexión
+## Fase 3F - Diagnóstico de conexión
 
 Esta versión agrega un botón **Diagnóstico** en la barra de estado para evitar volver a trabajar a ciegas cuando Vercel o Apps Script quedan apuntando a una versión vieja.
 
@@ -212,15 +212,15 @@ Luego hacer obligatoriamente:
 
 `Guardar → Implementar → Administrar implementaciones → lápiz → Nueva versión → Implementar`.
 
-Si el diagnóstico muestra un backend distinto a `1.6.4-fase-3e-blindaje-conexion`, Vercel sigue apuntando a una implementación vieja o Apps Script no fue desplegado como nueva versión.
+Si el diagnóstico muestra un backend distinto a `1.6.5-fase-3f-configuracion-persistente`, Vercel sigue apuntando a una implementación vieja o Apps Script no fue desplegado como nueva versión.
 
-## Fase 3E - Blindaje de conexión y control de versiones
+## Fase 3F - Blindaje de conexión y control de versiones
 
 Además del diagnóstico manual, esta versión agrega un blindaje automático al iniciar la app. Antes de sincronizar, la app valida que Apps Script responda con:
 
 ```txt
 projectName = Control Gastos Milena
-backendVersion = 1.6.4-fase-3e-blindaje-conexion
+backendVersion = 1.6.5-fase-3f-configuracion-persistente
 Google Sheet conectado = Sí
 Tabla Oficial = Existe
 Recordatorios = Existe
@@ -229,3 +229,30 @@ Recordatorios = Existe
 Si alguna validación falla, la app muestra **Revisar conexión** y bloquea la sincronización para evitar guardar contra un backend viejo o equivocado. Los cambios pueden quedar locales, pero no se suben hasta corregir la URL o la implementación.
 
 El diagnóstico también guarda el último resultado correcto en el dispositivo, útil para identificar desde cuándo empezó el problema.
+
+
+## Fase 3F - Configuración persistente en Apps Script
+
+Para evitar que cada implementación vuelva a romper la conexión, el nuevo `Code.gs` lee primero `SPREADSHEET_ID` y `APP_TOKEN` desde Propiedades del Script.
+
+Después de pegar el código de Fase 3F en Apps Script, ejecuta una sola vez:
+
+```text
+instalarConfiguracionFija
+```
+
+Luego ejecuta:
+
+```text
+probarHoja
+```
+
+Si `probarHoja` muestra `Base de Datos Gastos Mile-Rafa` y las hojas `Tabla Oficial` y `Recordatorios`, ya puedes implementar la app web.
+
+El diagnóstico debe mostrar:
+
+```text
+Backend respondido: 1.6.5-fase-3f-configuracion-persistente
+Google Sheet conectado: Sí
+Fuente de configuración: Propiedades del Script
+```

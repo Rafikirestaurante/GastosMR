@@ -1786,7 +1786,7 @@ select {
   }
 }
 
-/* Fase 3E · Blindaje de conexión */
+/* Fase 3F · Blindaje de conexión */
 .connection-guard-notice {
   display: flex;
   justify-content: space-between;
