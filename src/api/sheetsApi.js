@@ -2,11 +2,12 @@ import { normalizeText, parseAmount, todayISO } from '../utils/format.js';
 
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || '';
 const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || '';
-export const FRONTEND_VERSION = '1.6.3-fase-3d-diagnostico-conexion';
-export const EXPECTED_BACKEND_VERSION = '1.6.3-fase-3d-diagnostico-conexion';
+export const FRONTEND_VERSION = '1.6.4-fase-3e-blindaje-conexion';
+export const EXPECTED_BACKEND_VERSION = '1.6.4-fase-3e-blindaje-conexion';
 
-const DEMO_KEY = 'control-gastos-milena-demo-v3d-diagnostico';
-const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v3d-diagnostico';
+const DEMO_KEY = 'control-gastos-milena-demo-v3e-blindaje';
+const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v3e-blindaje';
+const LAST_GOOD_DIAGNOSTIC_KEY = 'control-gastos-milena-last-good-diagnostic-v3e';
 const PROXY_URL = '/api/sheets';
 const DIRECT_TIMEOUT_MS = 15000;
 
@@ -163,6 +164,110 @@ function saveRemoteSnapshot(data) {
   }
 }
 
+
+function saveLastGoodDiagnostic(result) {
+  try {
+    localStorage.setItem(LAST_GOOD_DIAGNOSTIC_KEY, JSON.stringify({
+      savedAt: new Date().toISOString(),
+      result
+    }));
+  } catch {
+    // El diagnóstico es una ayuda; si localStorage falla, la app continúa.
+  }
+}
+
+export function getLastGoodDiagnostic() {
+  try {
+    const raw = localStorage.getItem(LAST_GOOD_DIAGNOSTIC_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.result) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function getBackendVersionFromResponse(data = {}) {
+  return data?.backendVersion || data?.data?.backendVersion || data?.diagnostic?.backendVersion || '';
+}
+
+function isGoodDiagnostic(result = {}) {
+  const backendVersion = getBackendVersionFromResponse(result);
+  return Boolean(
+    result?.ok &&
+    backendVersion === EXPECTED_BACKEND_VERSION &&
+    result?.projectName === 'Control Gastos Milena' &&
+    result?.spreadsheet?.ok &&
+    result?.spreadsheet?.tablaOficialSheet &&
+    result?.spreadsheet?.recordatoriosSheet
+  );
+}
+
+export function buildConnectionGuardFromDiagnostic(result = {}) {
+  const lastGood = getLastGoodDiagnostic();
+  const backendVersion = getBackendVersionFromResponse(result);
+  const spreadsheet = result?.spreadsheet || {};
+  const ok = isGoodDiagnostic(result);
+
+  let message = 'Conexión validada correctamente.';
+  let reason = '';
+
+  if (!result?.ok) {
+    reason = 'diagnostic_failed';
+    message = result?.message || 'No se pudo validar la conexión con Apps Script.';
+  } else if (!backendVersion) {
+    reason = 'backend_without_version';
+    message = 'Apps Script no reporta versión. Es una implementación vieja o incorrecta.';
+  } else if (backendVersion !== EXPECTED_BACKEND_VERSION) {
+    reason = 'backend_version_mismatch';
+    message = `Backend antiguo o diferente: ${backendVersion}. Se esperaba ${EXPECTED_BACKEND_VERSION}.`;
+  } else if (result?.projectName && result.projectName !== 'Control Gastos Milena') {
+    reason = 'wrong_project';
+    message = `Apps Script respondió como ${result.projectName}, no como Control Gastos Milena.`;
+  } else if (!spreadsheet?.ok) {
+    reason = 'spreadsheet_unavailable';
+    message = 'Apps Script respondió, pero no pudo abrir el Google Sheet configurado.';
+  } else if (!spreadsheet?.tablaOficialSheet) {
+    reason = 'missing_tabla_oficial';
+    message = 'No se encontró la hoja Tabla Oficial en el Google Sheet conectado.';
+  } else if (!spreadsheet?.recordatoriosSheet) {
+    reason = 'missing_recordatorios';
+    message = 'No se encontró la hoja Recordatorios en el Google Sheet conectado.';
+  }
+
+  return {
+    checked: true,
+    ok,
+    blocked: !ok,
+    reason,
+    message,
+    backendVersion: backendVersion || 'No reportada',
+    expectedBackendVersion: EXPECTED_BACKEND_VERSION,
+    spreadsheetName: spreadsheet?.name || '',
+    spreadsheetId: result?.configuredSpreadsheetIdFull || result?.configuredSpreadsheetId || '',
+    generatedAt: result?.generatedAt || '',
+    lastGood
+  };
+}
+
+function ensureBackendIsSafe(data = {}, action = '') {
+  if (!data?.ok) return;
+  if (data?.demo) return;
+  if (action === 'diagnostic' || action === 'health') return;
+
+  const backendVersion = getBackendVersionFromResponse(data);
+  if (!backendVersion) {
+    throw new Error('Blindaje activo: Apps Script no reporta versión. Detén la sincronización y abre Diagnóstico; probablemente Vercel apunta a una implementación vieja.');
+  }
+  if (backendVersion !== EXPECTED_BACKEND_VERSION) {
+    throw new Error(`Blindaje activo: backend ${backendVersion} no coincide con ${EXPECTED_BACKEND_VERSION}. Actualiza la URL de Apps Script en Vercel o crea una nueva implementación.`);
+  }
+  if (data?.projectName && data.projectName !== 'Control Gastos Milena') {
+    throw new Error(`Blindaje activo: la URL configurada pertenece a otro proyecto (${data.projectName}). Revisa VITE_APPS_SCRIPT_URL en Vercel.`);
+  }
+}
+
 export function getCachedRemoteSnapshot() {
   try {
     const raw = localStorage.getItem(REMOTE_CACHE_KEY);
@@ -309,6 +414,7 @@ async function proxyRequest(action, payload = {}) {
   if (!response.ok || !data?.ok) {
     throw new Error(data?.message || 'No se pudo procesar la solicitud desde Vercel.');
   }
+  ensureBackendIsSafe(data, action);
 
   return data;
 }
@@ -342,7 +448,12 @@ function jsonpRequest(action, payload = {}) {
         reject(new Error(response?.message || 'No se pudo procesar la solicitud.'));
         return;
       }
-      resolve(response);
+      try {
+        ensureBackendIsSafe(response, action);
+        resolve(response);
+      } catch (error) {
+        reject(error);
+      }
     };
 
     script.onerror = () => {
@@ -384,34 +495,41 @@ export async function sheetsRequest(action, payload = {}) {
 
 export async function runConnectionDiagnostic() {
   const base = getClientDiagnosticBase();
+  const lastGood = getLastGoodDiagnostic();
   if (!hasRemoteConfig()) {
     return {
       ok: false,
       message: 'La app no tiene configuradas VITE_APPS_SCRIPT_URL y VITE_APP_TOKEN.',
-      diagnostic: { frontend: base }
+      diagnostic: { frontend: base, lastGood }
     };
   }
 
   try {
     const response = await proxyRequest('diagnostic', {});
-    return {
+    const enriched = {
       ...response,
       diagnostic: {
         ...(response.diagnostic || {}),
-        frontend: base
+        frontend: base,
+        lastGood
       }
     };
+    if (isGoodDiagnostic(enriched)) saveLastGoodDiagnostic(enriched);
+    return enriched;
   } catch (proxyError) {
     try {
       const response = await jsonpRequest('diagnostic', {});
-      return {
+      const enriched = {
         ...response,
         diagnostic: {
           ...(response.diagnostic || {}),
           frontend: base,
-          proxyError: proxyError.message || ''
+          proxyError: proxyError.message || '',
+          lastGood
         }
       };
+      if (isGoodDiagnostic(enriched)) saveLastGoodDiagnostic(enriched);
+      return enriched;
     } catch (directError) {
       return {
         ok: false,
@@ -419,7 +537,8 @@ export async function runConnectionDiagnostic() {
         diagnostic: {
           frontend: base,
           proxyError: proxyError.message || '',
-          directError: directError.message || ''
+          directError: directError.message || '',
+          lastGood
         }
       };
     }

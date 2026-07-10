@@ -1,5 +1,5 @@
 /************************************************************
- * Control Gastos Milena - Fase 3D
+ * Control Gastos Milena - Fase 3E
  * Backend Google Apps Script para Google Sheets.
  *
  * Hoja principal activa: "Tabla Oficial".
@@ -13,7 +13,7 @@
  *
  * Fase 2K/2L: sincronización segura para uso simultáneo y compatible con cola local.
  * Fase 3C: hoja Recordatorios sincronizada con la misma cola local de la app.
- * Fase 3D: diagnóstico anti-versión-vieja para confirmar backend, hoja y URL activa.
+ * Fase 3E: blindaje de conexión, versión obligatoria y diagnóstico automático.
  * - ID real por movimiento, sin depender del número de fila.
  * - LockService para crear/editar/borrar sin choques.
  * - Eliminación lógica con Estado = Eliminado.
@@ -30,7 +30,7 @@ const SPREADSHEET_ID = 'PEGA_AQUI_EL_ID_DE_TU_GOOGLE_SHEET';
 const APP_TOKEN = 'cambia-este-token-largo';
 
 const PROJECT_NAME = 'Control Gastos Milena';
-const BACKEND_VERSION = '1.6.3-fase-3d-diagnostico-conexion';
+const BACKEND_VERSION = '1.6.4-fase-3e-blindaje-conexion';
 
 const SHEETS = {
   mile: 'Tabla Oficial',
@@ -142,10 +142,29 @@ function doGet(e) {
   }
 }
 
+function probarHoja() {
+  Logger.log('Probando acceso al Google Sheet...');
+  Logger.log('SPREADSHEET_ID configurado: ' + SPREADSHEET_ID);
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  Logger.log('OK. Nombre del archivo: ' + ss.getName());
+  Logger.log('URL: ' + ss.getUrl());
+  Logger.log('Hojas encontradas: ' + ss.getSheets().map(sheet => sheet.getName()).join(' | '));
+}
+
 function probarConexion() {
   const response = doGet({
     parameter: {
       action: 'bootstrap',
+      token: APP_TOKEN
+    }
+  });
+  Logger.log(response.getContent());
+}
+
+function probarDiagnostico() {
+  const response = doGet({
+    parameter: {
+      action: 'diagnostic',
       token: APP_TOKEN
     }
   });
@@ -167,7 +186,13 @@ function sanitizeCallback_(callback) {
 }
 
 function respond_(obj, callback) {
-  const text = JSON.stringify(obj);
+  const responseObj = Object.assign({
+    projectName: PROJECT_NAME,
+    backendVersion: BACKEND_VERSION,
+    scriptTimeZone: Session.getScriptTimeZone(),
+    generatedAt: nowIso_()
+  }, obj || {});
+  const text = JSON.stringify(responseObj);
   if (callback) {
     return ContentService
       .createTextOutput(callback + '(' + text + ');')

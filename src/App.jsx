@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { getCachedRemoteSnapshot, sheetsRequest, runConnectionDiagnostic, FRONTEND_VERSION, EXPECTED_BACKEND_VERSION } from './api/sheetsApi.js';
+import {
+  buildConnectionGuardFromDiagnostic,
+  getCachedRemoteSnapshot,
+  getLastGoodDiagnostic,
+  sheetsRequest,
+  runConnectionDiagnostic,
+  FRONTEND_VERSION,
+  EXPECTED_BACKEND_VERSION
+} from './api/sheetsApi.js';
 import {
   createOperation,
   createTempId,
@@ -41,7 +49,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 3D · Diagnóstico conexión';
+const APP_VERSION = 'Fase 3E · Blindaje conexión';
 const SYNC_DELAY_MS = 2500;
 
 function reloadApp() {
@@ -128,7 +136,7 @@ function StatusChip({ type = 'info', children, title = '' }) {
   );
 }
 
-function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefresh, pendingSyncCount, failedSyncCount, syncing, onSyncNow, onDiagnostic, diagnosticLoading }) {
+function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefresh, pendingSyncCount, failedSyncCount, syncing, onSyncNow, onDiagnostic, diagnosticLoading, connectionGuard }) {
   let connectionType = 'success';
   let connectionText = 'Conectado';
   let connectionTitle = 'Conectado correctamente a Google Sheets.';
@@ -179,6 +187,12 @@ function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefr
         <StatusChip type={connectionType} title={connectionTitle}>{connectionText}</StatusChip>
         {notice && !error ? <StatusChip type="success" title={notice}>{notice}</StatusChip> : null}
         {pendingSyncCount > 0 ? <StatusChip type={syncType} title={syncTitle}>{syncText}</StatusChip> : null}
+        {connectionGuard?.checked && connectionGuard.ok ? (
+          <StatusChip type="success" title={`Backend ${connectionGuard.backendVersion}. Google Sheet: ${connectionGuard.spreadsheetName || 'validado'}`}>Blindaje OK</StatusChip>
+        ) : null}
+        {connectionGuard?.blocked ? (
+          <StatusChip type="danger" title={connectionGuard.message}>Revisar conexión</StatusChip>
+        ) : null}
       </div>
       {error && !hasData ? (
         <div className="connection-help">
@@ -195,7 +209,7 @@ function StatusBar({ demoMode, loading, error, notice, cachedAt, hasData, onRefr
           {diagnosticLoading ? 'Diagnosticando...' : 'Diagnóstico'}
         </button>
         {pendingSyncCount > 0 ? (
-          <button className="secondary sync-now-button" type="button" onClick={onSyncNow} disabled={syncing}>
+          <button className="secondary sync-now-button" type="button" onClick={onSyncNow} disabled={syncing || connectionGuard?.blocked}>
             {syncing ? 'Sincronizando...' : 'Sincronizar ahora'}
           </button>
         ) : null}
@@ -239,7 +253,7 @@ function DiagnosticPanel({ open, loading, result, onClose }) {
       <div className="diagnostic-card">
         <div className="diagnostic-head">
           <div>
-            <p className="eyebrow">Fase 3D</p>
+            <p className="eyebrow">Fase 3E</p>
             <h2>Diagnóstico de conexión</h2>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar diagnóstico">×</button>
@@ -264,6 +278,7 @@ function DiagnosticPanel({ open, loading, result, onClose }) {
             <div className="diagnostic-grid">
               <DiagnosticRow label="Frontend esperado" value={FRONTEND_VERSION} />
               <DiagnosticRow label="Backend respondido" value={backendVersion} danger={versionMismatch} />
+              <DiagnosticRow label="Último diagnóstico bueno" value={formatDiagnosticDate(readDiagnosticPath(result, 'diagnostic.lastGood.savedAt', '')) || 'Sin registro local'} />
               <DiagnosticRow label="URL Apps Script en Vercel" value={vercelUrl} />
               <DiagnosticRow label="ID de Google Sheet configurado" value={configuredSpreadsheetId || readDiagnosticPath(result, 'configuredSpreadsheetId', '')} />
               <DiagnosticRow label="Google Sheet conectado" value={spreadsheetOk ? 'Sí' : 'No'} danger={!spreadsheetOk} />
@@ -295,6 +310,38 @@ function DiagnosticPanel({ open, loading, result, onClose }) {
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+
+function formatDiagnosticDate(value) {
+  if (!value) return '';
+  try {
+    return new Date(value).toLocaleString('es-CO', {
+      dateStyle: 'short',
+      timeStyle: 'short'
+    });
+  } catch {
+    return value;
+  }
+}
+
+function ConnectionGuardNotice({ guard, onDiagnostic }) {
+  if (!guard?.blocked) return null;
+  const lastGood = guard.lastGood;
+  const lastGoodText = lastGood?.savedAt
+    ? `Última conexión correcta: ${formatDiagnosticDate(lastGood.savedAt)}.`
+    : 'Todavía no hay una conexión correcta guardada en este dispositivo.';
+
+  return (
+    <div className="connection-guard-notice" role="alert">
+      <div>
+        <strong>Blindaje de conexión activo</strong>
+        <span>{guard.message}</span>
+        <small>{lastGoodText}</small>
+      </div>
+      <button className="secondary" type="button" onClick={onDiagnostic}>Abrir diagnóstico</button>
     </div>
   );
 }
@@ -1479,6 +1526,13 @@ export default function App() {
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const [diagnosticLoading, setDiagnosticLoading] = useState(false);
   const [diagnosticResult, setDiagnosticResult] = useState(null);
+  const [connectionGuard, setConnectionGuard] = useState(() => ({
+    checked: false,
+    ok: false,
+    blocked: false,
+    message: 'Validación pendiente.',
+    lastGood: getLastGoodDiagnostic()
+  }));
 
   const mileRef = useRef(mile);
   const rafaRef = useRef(rafa);
@@ -1488,6 +1542,7 @@ export default function App() {
   const idMapRef = useRef(getIdMap());
   const syncTimerRef = useRef(null);
   const syncingRef = useRef(false);
+  const connectionGuardRef = useRef(connectionGuard);
 
   const pendingSyncCount = syncQueue.filter((item) => item.status !== 'done').length;
   const failedSyncCount = syncQueue.filter((item) => item.status === 'failed').length;
@@ -1498,6 +1553,7 @@ export default function App() {
   useEffect(() => { saveStoredReminders(reminders); }, [reminders]);
   useEffect(() => { configRef.current = config; }, [config]);
   useEffect(() => { queueRef.current = syncQueue; }, [syncQueue]);
+  useEffect(() => { connectionGuardRef.current = connectionGuard; }, [connectionGuard]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -1559,6 +1615,54 @@ export default function App() {
     setMile(normalized.mile);
     setRafa(normalized.rafa);
     setReminders(normalized.reminders || []);
+  }
+
+
+  function updateConnectionGuard(result) {
+    const guard = buildConnectionGuardFromDiagnostic(result);
+    connectionGuardRef.current = guard;
+    setConnectionGuard(guard);
+    return guard;
+  }
+
+  async function validateConnectionSilently(options = {}) {
+    const { openOnFailure = false } = options;
+    try {
+      const result = await runConnectionDiagnostic();
+      const guard = updateConnectionGuard(result);
+      if (guard.blocked) {
+        setDiagnosticResult(result);
+        if (openOnFailure) setDiagnosticOpen(true);
+      }
+      return guard;
+    } catch (err) {
+      const result = { ok: false, message: err.message || 'No se pudo validar la conexión.' };
+      const guard = updateConnectionGuard(result);
+      if (openOnFailure) {
+        setDiagnosticResult(result);
+        setDiagnosticOpen(true);
+      }
+      return guard;
+    }
+  }
+
+  async function ensureConnectionReadyForSync(openOnFailure = true) {
+    const currentGuard = connectionGuardRef.current;
+    if (currentGuard?.checked && currentGuard.blocked) {
+      setError(`Blindaje activo: ${currentGuard.message}`);
+      if (openOnFailure) setDiagnosticOpen(true);
+      return false;
+    }
+
+    if (!currentGuard?.checked) {
+      const guard = await validateConnectionSilently({ openOnFailure });
+      if (guard.blocked) {
+        setError(`Blindaje activo: ${guard.message}`);
+        return false;
+      }
+    }
+
+    return true;
   }
 
   async function loadData(options = {}) {
@@ -1683,6 +1787,9 @@ export default function App() {
     const available = queueRef.current.filter((item) => item.status === 'pending' || item.status === 'failed' || item.status === 'syncing');
     if (available.length === 0) return;
 
+    const ready = await ensureConnectionReadyForSync(true);
+    if (!ready) return;
+
     syncingRef.current = true;
     setSyncing(true);
     setError('');
@@ -1744,12 +1851,21 @@ export default function App() {
   }
 
   useEffect(() => {
-    loadData();
-    if (queueRef.current.length > 0) scheduleSync(1200);
+    let cancelled = false;
+
+    async function startApp() {
+      const guard = await validateConnectionSilently({ openOnFailure: false });
+      if (cancelled) return;
+      await loadData();
+      if (!cancelled && queueRef.current.length > 0 && !guard.blocked) scheduleSync(1200);
+    }
+
+    startApp();
 
     const onOnline = () => processSyncQueue(true);
     window.addEventListener('online', onOnline);
     return () => {
+      cancelled = true;
       window.removeEventListener('online', onOnline);
       if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
     };
@@ -1763,8 +1879,11 @@ export default function App() {
     try {
       const result = await runConnectionDiagnostic();
       setDiagnosticResult(result);
+      updateConnectionGuard(result);
     } catch (err) {
-      setDiagnosticResult({ ok: false, message: err.message || 'No se pudo ejecutar el diagnóstico.' });
+      const result = { ok: false, message: err.message || 'No se pudo ejecutar el diagnóstico.' };
+      setDiagnosticResult(result);
+      updateConnectionGuard(result);
     } finally {
       setDiagnosticLoading(false);
     }
@@ -1939,7 +2058,7 @@ export default function App() {
           <span>GM</span>
           <div>
             <strong>Control Gastos</strong>
-            <small>Milena · Fase 3D</small>
+            <small>Milena · Fase 3E</small>
           </div>
         </div>
         <nav>
@@ -1963,7 +2082,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 3D</span>
+          <span className="version" title={APP_VERSION}>Fase 3E</span>
         </header>
 
         <StatusBar
@@ -1980,7 +2099,10 @@ export default function App() {
           onSyncNow={() => processSyncQueue(true)}
           onDiagnostic={openDiagnosticPanel}
           diagnosticLoading={diagnosticLoading}
+          connectionGuard={connectionGuard}
         />
+
+        <ConnectionGuardNotice guard={connectionGuard} onDiagnostic={openDiagnosticPanel} />
 
         {loading && mile.length === 0 && rafa.length === 0 && reminders.length === 0 ? <div className="panel loading">Cargando información...</div> : null}
 

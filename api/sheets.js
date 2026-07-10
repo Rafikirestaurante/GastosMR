@@ -1,6 +1,6 @@
 const DEFAULT_TIMEOUT_MS = 15000;
-const FRONTEND_VERSION = '1.6.3-fase-3d-diagnostico-conexion';
-const EXPECTED_BACKEND_VERSION = '1.6.3-fase-3d-diagnostico-conexion';
+const FRONTEND_VERSION = '1.6.4-fase-3e-blindaje-conexion';
+const EXPECTED_BACKEND_VERSION = '1.6.4-fase-3e-blindaje-conexion';
 
 function readBody(req) {
   if (!req.body) return {};
@@ -115,7 +115,7 @@ export default async function handler(req, res) {
       signal: controller.signal,
       headers: {
         'Accept': 'application/json,text/plain,*/*',
-        'User-Agent': 'Control-Gastos-Milena/3D'
+        'User-Agent': 'Control-Gastos-Milena/3E'
       }
     });
 
@@ -133,7 +133,8 @@ export default async function handler(req, res) {
     }
 
     const backendVersion = data?.backendVersion || data?.data?.backendVersion || '';
-    const versionMismatch = backendVersion && backendVersion !== EXPECTED_BACKEND_VERSION;
+    const isDiagnosticAction = action === 'diagnostic' || action === 'health';
+    const versionMismatch = !backendVersion || backendVersion !== EXPECTED_BACKEND_VERSION;
     const enriched = {
       ...data,
       diagnostic: {
@@ -141,7 +142,8 @@ export default async function handler(req, res) {
         backendVersion: backendVersion || 'No reportada por Apps Script',
         versionMismatch,
         appsScriptResponseOk: response.ok,
-        appsScriptMessage: data?.message || ''
+        appsScriptMessage: data?.message || '',
+        syncAllowed: !versionMismatch && response.ok && Boolean(data?.ok)
       }
     };
 
@@ -150,6 +152,16 @@ export default async function handler(req, res) {
         ...enriched,
         ok: false,
         message: data?.message || 'Google Apps Script respondió con error.'
+      });
+    }
+
+    if (!isDiagnosticAction && data?.ok && versionMismatch) {
+      return sendJson(res, 409, {
+        ...enriched,
+        ok: false,
+        message: backendVersion
+          ? `Blindaje activo: Apps Script respondió con backend ${backendVersion}, pero la app espera ${EXPECTED_BACKEND_VERSION}. Actualiza la URL en Vercel o crea una nueva implementación en Apps Script.`
+          : 'Blindaje activo: Apps Script no reporta versión. La app podría estar conectada a una implementación vieja; abre Diagnóstico antes de sincronizar.'
       });
     }
 

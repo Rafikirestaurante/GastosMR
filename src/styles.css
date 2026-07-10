@@ -1785,3 +1785,48 @@ select {
     gap: 2px;
   }
 }
+
+/* Fase 3E · Blindaje de conexión */
+.connection-guard-notice {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin: 0 0 0.9rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #fecaca;
+  border-radius: 18px;
+  background: #fef2f2;
+  color: #7f1d1d;
+  box-shadow: 0 10px 26px rgba(127, 29, 29, 0.08);
+}
+
+.connection-guard-notice div {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.connection-guard-notice strong,
+.connection-guard-notice span,
+.connection-guard-notice small {
+  display: block;
+}
+
+.connection-guard-notice span {
+  font-weight: 700;
+}
+
+.connection-guard-notice small {
+  color: #991b1b;
+}
+
+@media (max-width: 720px) {
+  .connection-guard-notice {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .connection-guard-notice button {
+    width: 100%;
+  }
+}

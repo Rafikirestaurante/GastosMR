@@ -1,4 +1,4 @@
-# Control Gastos Milena — Fase 3D
+# Control Gastos Milena — Fase 3E
 
 Aplicación web sencilla para controlar los gastos de Milena usando React + Vite, Vercel y Google Sheets mediante Google Apps Script.
 
@@ -170,7 +170,7 @@ notas/
 La carpeta se mantiene por debajo de 20 archivos.
 
 
-## Fase 3D - Diagnóstico de conexión
+## Fase 3E - Diagnóstico de conexión
 
 Esta versión agrega un botón **Diagnóstico** en la barra de estado para evitar volver a trabajar a ciegas cuando Vercel o Apps Script quedan apuntando a una versión vieja.
 
@@ -212,4 +212,20 @@ Luego hacer obligatoriamente:
 
 `Guardar → Implementar → Administrar implementaciones → lápiz → Nueva versión → Implementar`.
 
-Si el diagnóstico muestra un backend distinto a `1.6.3-fase-3d-diagnostico-conexion`, Vercel sigue apuntando a una implementación vieja o Apps Script no fue desplegado como nueva versión.
+Si el diagnóstico muestra un backend distinto a `1.6.4-fase-3e-blindaje-conexion`, Vercel sigue apuntando a una implementación vieja o Apps Script no fue desplegado como nueva versión.
+
+## Fase 3E - Blindaje de conexión y control de versiones
+
+Además del diagnóstico manual, esta versión agrega un blindaje automático al iniciar la app. Antes de sincronizar, la app valida que Apps Script responda con:
+
+```txt
+projectName = Control Gastos Milena
+backendVersion = 1.6.4-fase-3e-blindaje-conexion
+Google Sheet conectado = Sí
+Tabla Oficial = Existe
+Recordatorios = Existe
+```
+
+Si alguna validación falla, la app muestra **Revisar conexión** y bloquea la sincronización para evitar guardar contra un backend viejo o equivocado. Los cambios pueden quedar locales, pero no se suben hasta corregir la URL o la implementación.
+
+El diagnóstico también guarda el último resultado correcto en el dispositivo, útil para identificar desde cuándo empezó el problema.
