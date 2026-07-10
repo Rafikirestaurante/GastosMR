@@ -4,7 +4,7 @@ Aplicación web personal para controlar movimientos de Milena con React + Vite, 
 
 ## Versión
 
-- Frontend: `1.7.0-fase-4a-navegacion-pendientes`
+- Frontend: `1.7.1-fase-4a-navegacion-pendientes`
 - Backend Apps Script esperado: `1.6.5-fase-3f-configuracion-persistente`
 
 La Fase 4A modifica únicamente el frontend. El backend estable de Fase 3F se conserva sin cambios.
@@ -151,3 +151,11 @@ Recordatorios = Existe
 ```
 
 Si se muestra **Revisar conexión**, los cambios pueden permanecer guardados localmente, pero la sincronización se bloquea hasta corregir la implementación o las variables de entorno.
+
+
+## Fase 4B · Ajustes de tablas responsive
+
+- La tabla de Inicio ya no muestra la columna ID.
+- Inicio y Rafa permiten alternar entre Tabla y Tarjetas únicamente en pantallas móviles.
+- En computador ambas secciones siempre muestran tabla, aunque la vista móvil guardada sea Tarjetas.
+- El selector de columnas del Dashboard se convirtió en un control compacto y desplegable.

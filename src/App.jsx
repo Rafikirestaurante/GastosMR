@@ -49,8 +49,33 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 4A · Navegación unificada y pendientes';
+const APP_VERSION = 'Fase 4B · Vistas móviles en Inicio y Rafa';
 const SYNC_DELAY_MS = 2500;
+
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia(query).matches
+      : false
+  ));
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const mediaQuery = window.matchMedia(query);
+    const updateMatches = (event) => setMatches(event.matches);
+    setMatches(mediaQuery.matches);
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', updateMatches);
+      return () => mediaQuery.removeEventListener('change', updateMatches);
+    }
+
+    mediaQuery.addListener(updateMatches);
+    return () => mediaQuery.removeListener(updateMatches);
+  }, [query]);
+
+  return matches;
+}
 
 function reloadApp() {
   const url = new URL(window.location.href);
@@ -956,8 +981,8 @@ function Dashboard({ mile, rafa, month, setMonth }) {
         <Card title="Saldo del rango" value={money(saldoRango)} />
       </div>
 
-      <div className="column-toggle-panel">
-        <strong>Mostrar columnas</strong>
+      <details className="column-toggle-panel">
+        <summary>Mostrar columnas</summary>
         <div className="column-toggle-list">
           {DASHBOARD_TABLE_COLUMNS.map((column) => (
             <label className="checkbox-chip" key={column.key}>
@@ -970,7 +995,7 @@ function Dashboard({ mile, rafa, month, setMonth }) {
             </label>
           ))}
         </div>
-      </div>
+      </details>
 
       <p className="table-scroll-hint">Desliza la tabla hacia los lados para ver más columnas.</p>
 
@@ -1139,6 +1164,8 @@ function InicioModule({ rows, config, editing, formOpen, setFormOpen, saving, on
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [viewMode, setViewMode] = useState(() => window.localStorage.getItem('control-gastos-inicio-view') || 'table');
+  const isMobileView = useMediaQuery('(max-width: 720px)');
+  const activeViewMode = isMobileView ? viewMode : 'table';
 
   useEffect(() => {
     window.localStorage.setItem('control-gastos-inicio-view', viewMode);
@@ -1216,15 +1243,17 @@ function InicioModule({ rows, config, editing, formOpen, setFormOpen, saving, on
           </div>
           <div className="history-head-actions">
             <strong>{filtered.length} registros</strong>
-            <div className="view-switch" role="group" aria-label="Cambiar vista del historial">
-              <button type="button" className={viewMode === 'table' ? 'active' : ''} onClick={() => setViewMode('table')}>Tabla</button>
-              <button type="button" className={viewMode === 'cards' ? 'active' : ''} onClick={() => setViewMode('cards')}>Tarjetas</button>
-            </div>
+            {isMobileView ? (
+              <div className="view-switch" role="group" aria-label="Cambiar vista del historial">
+                <button type="button" className={viewMode === 'table' ? 'active' : ''} onClick={() => setViewMode('table')}>Tabla</button>
+                <button type="button" className={viewMode === 'cards' ? 'active' : ''} onClick={() => setViewMode('cards')}>Tarjetas</button>
+              </div>
+            ) : null}
           </div>
         </div>
 
         <div className="filters">
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por concepto, proveedor o ID" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por concepto o proveedor" />
           <select value={type} onChange={(event) => setType(event.target.value)}>
             <option value="">Tipo: todos</option>
             {config.tiposMovimiento.map((item) => <option key={item} value={item}>{item}</option>)}
@@ -1237,7 +1266,7 @@ function InicioModule({ rows, config, editing, formOpen, setFormOpen, saving, on
           <input type="date" value={to} onChange={(event) => setTo(event.target.value)} aria-label="Fecha hasta" />
         </div>
 
-        {viewMode === 'cards' ? (
+        {activeViewMode === 'cards' ? (
           <div className="history-card-grid" aria-label="Historial en tarjetas">
             {filtered.map((row) => (
               <article className="history-card" key={`card-${row.id}`}>
@@ -1275,7 +1304,6 @@ function InicioModule({ rows, config, editing, formOpen, setFormOpen, saving, on
               <table>
                 <thead>
                   <tr>
-                    <th>ID</th>
                     <th>Fecha</th>
                     <th>Proveedor</th>
                     <th>Concepto</th>
@@ -1291,7 +1319,6 @@ function InicioModule({ rows, config, editing, formOpen, setFormOpen, saving, on
                 <tbody>
                   {filtered.map((row) => (
                     <tr key={row.id}>
-                      <td>{row.id}</td>
                       <td>{formatShortDate(row.fecha)}</td>
                       <td>{row.proveedor}</td>
                       <td>{row.concepto}</td>
@@ -1308,7 +1335,7 @@ function InicioModule({ rows, config, editing, formOpen, setFormOpen, saving, on
                     </tr>
                   ))}
                   {filtered.length === 0 ? (
-                    <tr><td colSpan="11" className="empty">No hay registros con esos filtros.</td></tr>
+                    <tr><td colSpan="10" className="empty">No hay registros con esos filtros.</td></tr>
                   ) : null}
                 </tbody>
               </table>
@@ -1478,6 +1505,18 @@ function PendientesModule({ reminders, onUpdate, onComplete, onDelete }) {
 function RafaModule({ rows, config, onCreate, onDelete, saving }) {
   const [form, setForm] = useState(emptyRafa);
   const [error, setError] = useState('');
+  const [viewMode, setViewMode] = useState(() => window.localStorage.getItem('control-gastos-rafa-view') || 'table');
+  const isMobileView = useMediaQuery('(max-width: 720px)');
+  const activeViewMode = isMobileView ? viewMode : 'table';
+
+  useEffect(() => {
+    window.localStorage.setItem('control-gastos-rafa-view', viewMode);
+  }, [viewMode]);
+
+  const sortedRows = useMemo(
+    () => [...rows].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)) || String(b.id).localeCompare(String(a.id))),
+    [rows]
+  );
 
   function update(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -1502,7 +1541,15 @@ function RafaModule({ rows, config, onCreate, onDelete, saving }) {
           <p className="eyebrow">Módulo secundario</p>
           <h2>Gastos Rafa</h2>
         </div>
-        <strong>Total: {money(sumBy(rows, (row) => row.monto))}</strong>
+        <div className="history-head-actions">
+          <strong>Total: {money(sumBy(rows, (row) => row.monto))}</strong>
+          {isMobileView ? (
+            <div className="view-switch" role="group" aria-label="Cambiar vista de gastos Rafa">
+              <button type="button" className={viewMode === 'table' ? 'active' : ''} onClick={() => setViewMode('table')}>Tabla</button>
+              <button type="button" className={viewMode === 'cards' ? 'active' : ''} onClick={() => setViewMode('cards')}>Tarjetas</button>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <form className="form-grid compact" onSubmit={submit}>
@@ -1531,57 +1578,67 @@ function RafaModule({ rows, config, onCreate, onDelete, saving }) {
         </div>
       </form>
 
-      <div className="mobile-records" aria-label="Gastos Rafa en tarjetas">
-        {[...rows].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))).map((row) => (
-          <article className="mobile-record" key={`rafa-mobile-${row.id}`}>
-            <div className="mobile-record-head">
-              <div>
-                <strong>{row.concepto}</strong>
-                <span>{row.fecha} · {row.id}</span>
+      {activeViewMode === 'cards' ? (
+        <div className="history-card-grid" aria-label="Gastos Rafa en tarjetas">
+          {sortedRows.map((row) => (
+            <article className="history-card" key={`rafa-card-${row.id}`}>
+              <div className="mobile-record-head">
+                <div>
+                  <strong>{row.concepto}</strong>
+                  <span>{formatShortDate(row.fecha)} · {row.id}</span>
+                </div>
+                <em className="expense">-{money(row.monto)}</em>
               </div>
-              <em className="expense">{money(row.monto)}</em>
-            </div>
-            <div className="mobile-record-meta">
-              <span><b>Categoría:</b> {row.categoria}</span>
-              <span><b>Sincronización:</b> <SyncPill row={row} /></span>
-              {row.syncError ? <span><b>Error:</b> {row.syncError}</span> : null}
-            </div>
-            <div className="row-actions mobile-actions">
-              <button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button>
-            </div>
-          </article>
-        ))}
-        {rows.length === 0 ? <div className="empty mobile-empty">No hay gastos de Rafa registrados.</div> : null}
-      </div>
-
-      <div className="table-wrap small-table desktop-table">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Fecha</th>
-              <th>Concepto</th>
-              <th>Monto</th>
-              <th>Categoría</th>
-              <th>Sync</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...rows].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))).map((row) => (
-              <tr key={row.id}>
-                <td>{row.id}</td>
-                <td>{row.fecha}</td>
-                <td>{row.concepto}</td>
-                <td>{money(row.monto)}</td>
-                <td>{row.categoria}</td>
-                <td><SyncPill row={row} /></td>
-                <td><button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+              <div className="mobile-record-meta">
+                <span><b>Fecha:</b> {formatShortDate(row.fecha)}</span>
+                <span><b>Monto:</b> {money(row.monto)}</span>
+                <span><b>Categoría:</b> {row.categoria || 'Sin categoría'}</span>
+                <span><b>Sincronización:</b> <SyncPill row={row} /></span>
+                {row.syncError ? <span className="danger-text"><b>Error:</b> {row.syncError}</span> : null}
+              </div>
+              <div className="row-actions mobile-actions">
+                <button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button>
+              </div>
+            </article>
+          ))}
+          {sortedRows.length === 0 ? <div className="empty mobile-empty">No hay gastos de Rafa registrados.</div> : null}
+        </div>
+      ) : (
+        <>
+          <p className="table-scroll-hint">Desliza la tabla hacia los lados para ver más columnas.</p>
+          <div className="table-wrap small-table rafa-history-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Fecha</th>
+                  <th>Concepto</th>
+                  <th>Monto</th>
+                  <th>Categoría</th>
+                  <th>Sync</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedRows.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.id}</td>
+                    <td>{formatShortDate(row.fecha)}</td>
+                    <td>{row.concepto}</td>
+                    <td className="expense-cell">{money(row.monto)}</td>
+                    <td>{row.categoria}</td>
+                    <td><SyncPill row={row} /></td>
+                    <td><button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button></td>
+                  </tr>
+                ))}
+                {sortedRows.length === 0 ? (
+                  <tr><td colSpan="7" className="empty">No hay gastos de Rafa registrados.</td></tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </section>
   );
 }
@@ -2272,7 +2329,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 4A</span>
+          <span className="version" title={APP_VERSION}>Fase 4B</span>
         </header>
 
         <StatusBar

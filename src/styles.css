@@ -1094,39 +1094,56 @@ select {
 }
 
 .column-toggle-panel {
-  display: grid;
-  gap: 0.75rem;
-  padding: 1rem;
-  margin-bottom: 1rem;
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 0.7rem;
+  padding: 0.42rem 0.58rem;
   border: 1px solid var(--border);
-  border-radius: 18px;
-  background: var(--panel-strong);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.column-toggle-panel[open] {
+  width: 100%;
+}
+
+.column-toggle-panel summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  user-select: none;
 }
 
 .column-toggle-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
 }
 
 .checkbox-chip {
   width: auto;
+  min-height: 28px;
   display: inline-flex;
-  grid-auto-flow: column;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0.45rem 0.65rem;
+  gap: 0.3rem;
+  padding: 0.25rem 0.42rem;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 8px;
   background: #fbf4ec;
   color: var(--text);
-  font-weight: 800;
+  font-size: 0.72rem;
+  font-weight: 700;
   cursor: pointer;
 }
 
 .checkbox-chip input {
-  width: auto;
+  width: 13px;
+  height: 13px;
   min-height: auto;
+  margin: 0;
   accent-color: var(--primary);
 }
 
@@ -1194,17 +1211,19 @@ select {
     width: 100%;
   }
 
-  .column-toggle-panel {
-    padding: 0.85rem;
+  .column-toggle-panel,
+  .column-toggle-panel[open] {
+    width: 100%;
+    padding: 0.42rem 0.5rem;
   }
 
   .column-toggle-list {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.3rem;
   }
 
   .checkbox-chip {
-    border-radius: 12px;
     justify-content: flex-start;
   }
 
@@ -1944,7 +1963,11 @@ textarea:focus {
 }
 
 .home-history-table table {
-  min-width: 1120px;
+  min-width: 1040px;
+}
+
+.rafa-history-table table {
+  min-width: 760px;
 }
 
 .reminder-counts {
