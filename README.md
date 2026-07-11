@@ -1,15 +1,24 @@
-# Control Gastos Milena — Fase 4A
+# Control Gastos Milena — Fase 4C
 
 Aplicación web personal para controlar movimientos de Milena con React + Vite, Vercel, Google Apps Script y Google Sheets.
 
 ## Versión
 
-- Frontend: `1.7.1-fase-4a-navegacion-pendientes`
+- Frontend: `1.7.2-fase-4c-edicion-modal`
 - Backend Apps Script esperado: `1.6.5-fase-3f-configuracion-persistente`
 
-La Fase 4A modifica únicamente el frontend. El backend estable de Fase 3F se conserva sin cambios.
+La Fase 4C modifica el frontend y utiliza la operación de actualización de Rafa ya disponible en el backend estable de Fase 3F. No requiere cambios en Google Sheets ni una nueva implementación de Apps Script.
 
-## Cambios de la Fase 4A
+## Cambios de la Fase 4C
+
+- En **Inicio**, el botón **Editar** abre una ventana modal cómoda y centrada.
+- En **Rafa**, se agregaron botones **Editar** en la tabla y en las tarjetas.
+- La edición de Rafa también se realiza mediante ventana modal.
+- Las ventanas pueden cerrarse con el botón **×**, con **Cancelar edición**, tocando el fondo o presionando `Esc`.
+- Al actualizar, el cambio se guarda primero en el dispositivo y luego se sincroniza con Google Sheets.
+- En celular, la ventana se adapta a la pantalla y permite desplazamiento interno.
+
+## Cambios acumulados desde la Fase 4A
 
 ### Navegación unificada
 

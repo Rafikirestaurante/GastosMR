@@ -49,7 +49,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 4B · Vistas móviles en Inicio y Rafa';
+const APP_VERSION = 'Fase 4C · Edición de movimientos en ventanas modales';
 const SYNC_DELAY_MS = 2500;
 
 function useMediaQuery(query) {
@@ -1157,7 +1157,134 @@ function MileForm({ config, initialData, editingId, onCancel, onSubmit, saving }
   );
 }
 
-function InicioModule({ rows, config, editing, formOpen, setFormOpen, saving, onSave, onCancelEdit, onEdit, onDelete }) {
+
+function EditMovementModal({ open, eyebrow, title, onClose, children }) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') onClose();
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="edit-movement-overlay"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section className="edit-movement-card" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="edit-movement-head">
+          <div>
+            <p className="eyebrow">{eyebrow}</p>
+            <h2>{title}</h2>
+            <p className="muted">Realiza los cambios y presiona actualizar para guardarlos.</p>
+          </div>
+          <button className="edit-movement-close" type="button" onClick={onClose} aria-label="Cerrar ventana de edición">×</button>
+        </div>
+        <div className="edit-movement-body">{children}</div>
+      </section>
+    </div>
+  );
+}
+
+function MileEditModal({ row, config, saving, onSubmit, onClose }) {
+  return (
+    <EditMovementModal
+      open={Boolean(row)}
+      eyebrow="Tabla Oficial"
+      title="Editar movimiento"
+      onClose={onClose}
+    >
+      {row ? (
+        <MileForm
+          config={config}
+          initialData={row}
+          editingId={row.id}
+          saving={saving}
+          onSubmit={onSubmit}
+          onCancel={onClose}
+        />
+      ) : null}
+    </EditMovementModal>
+  );
+}
+
+function RafaEditModal({ row, config, saving, onSubmit, onClose }) {
+  const [form, setForm] = useState(row || emptyRafa);
+  const [localError, setLocalError] = useState('');
+
+  useEffect(() => {
+    setForm(row || emptyRafa);
+    setLocalError('');
+  }, [row]);
+
+  function update(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function handleSubmit(event) {
+    event.preventDefault();
+    const validation = requireFields(form, ['fecha', 'concepto', 'monto', 'categoria']);
+    if (validation) {
+      setLocalError(validation);
+      return;
+    }
+    onSubmit({ ...form, monto: parseAmount(form.monto) });
+  }
+
+  return (
+    <EditMovementModal
+      open={Boolean(row)}
+      eyebrow="Gastos Rafa"
+      title="Editar gasto de Rafa"
+      onClose={onClose}
+    >
+      {row ? (
+        <form className="form-grid compact" onSubmit={handleSubmit}>
+          <label>
+            Fecha <span>*</span>
+            <input type="date" value={form.fecha} onChange={(event) => update('fecha', event.target.value)} />
+          </label>
+          <label className="wide">
+            Concepto <span>*</span>
+            <input value={form.concepto} onChange={(event) => update('concepto', event.target.value)} />
+          </label>
+          <label>
+            Monto <span>*</span>
+            <input type="number" min="1" value={form.monto} onChange={(event) => update('monto', event.target.value)} />
+          </label>
+          <label>
+            Categoría <span>*</span>
+            <select value={form.categoria} onChange={(event) => update('categoria', event.target.value)}>
+              <option value="">Seleccionar</option>
+              {config.categorias.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          {localError ? <p className="form-error wide">{localError}</p> : null}
+          <div className="actions wide">
+            <button type="submit" disabled={saving}>{saving ? 'Guardando...' : 'Actualizar gasto Rafa'}</button>
+            <button className="secondary" type="button" onClick={onClose}>Cancelar edición</button>
+          </div>
+        </form>
+      ) : null}
+    </EditMovementModal>
+  );
+}
+
+function InicioModule({ rows, config, formOpen, setFormOpen, saving, onSave, onEdit, onDelete }) {
   const [query, setQuery] = useState('');
   const [type, setType] = useState('');
   const [category, setCategory] = useState('');
@@ -1197,7 +1324,6 @@ function InicioModule({ rows, config, editing, formOpen, setFormOpen, saving, on
   }, [rowsWithBalance, query, type, category, from, to]);
 
   function openNewRecord() {
-    onCancelEdit();
     setFormOpen(true);
   }
 
@@ -1210,7 +1336,7 @@ function InicioModule({ rows, config, editing, formOpen, setFormOpen, saving, on
             <h2>Inicio</h2>
             <p className="muted home-description">Registra movimientos y consulta el historial desde un solo lugar.</p>
           </div>
-          <button type="button" onClick={formOpen ? () => { onCancelEdit(); setFormOpen(false); } : openNewRecord}>
+          <button type="button" onClick={formOpen ? () => setFormOpen(false) : openNewRecord}>
             {formOpen ? 'Cerrar formulario' : '+ Nuevo registro'}
           </button>
         </div>
@@ -1221,16 +1347,15 @@ function InicioModule({ rows, config, editing, formOpen, setFormOpen, saving, on
           <div className="panel-head">
             <div>
               <p className="eyebrow">Nuevo registro</p>
-              <h2>{editing ? `Editando ${editing.id}` : 'Nuevo movimiento'}</h2>
+              <h2>Nuevo movimiento</h2>
             </div>
           </div>
           <MileForm
             config={config}
-            initialData={editing || emptyMile}
-            editingId={editing?.id}
+            initialData={emptyMile}
             saving={saving}
             onSubmit={onSave}
-            onCancel={() => { onCancelEdit(); setFormOpen(false); }}
+            onCancel={() => setFormOpen(false)}
           />
         </section>
       ) : null}
@@ -1502,7 +1627,7 @@ function PendientesModule({ reminders, onUpdate, onComplete, onDelete }) {
   );
 }
 
-function RafaModule({ rows, config, onCreate, onDelete, saving }) {
+function RafaModule({ rows, config, onCreate, onEdit, onDelete, saving }) {
   const [form, setForm] = useState(emptyRafa);
   const [error, setError] = useState('');
   const [viewMode, setViewMode] = useState(() => window.localStorage.getItem('control-gastos-rafa-view') || 'table');
@@ -1597,6 +1722,7 @@ function RafaModule({ rows, config, onCreate, onDelete, saving }) {
                 {row.syncError ? <span className="danger-text"><b>Error:</b> {row.syncError}</span> : null}
               </div>
               <div className="row-actions mobile-actions">
+                <button className="small" type="button" onClick={() => onEdit(row)}>Editar</button>
                 <button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button>
               </div>
             </article>
@@ -1628,7 +1754,10 @@ function RafaModule({ rows, config, onCreate, onDelete, saving }) {
                     <td className="expense-cell">{money(row.monto)}</td>
                     <td>{row.categoria}</td>
                     <td><SyncPill row={row} /></td>
-                    <td><button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button></td>
+                    <td className="row-actions">
+                      <button className="small" type="button" onClick={() => onEdit(row)}>Editar</button>
+                      <button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button>
+                    </td>
                   </tr>
                 ))}
                 {sortedRows.length === 0 ? (
@@ -1732,6 +1861,7 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const [cachedAt, setCachedAt] = useState('');
   const [editing, setEditing] = useState(null);
+  const [editingRafa, setEditingRafa] = useState(null);
   const [syncQueue, setSyncQueueState] = useState(() => getSyncQueue());
   const [syncing, setSyncing] = useState(false);
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
@@ -2158,6 +2288,30 @@ export default function App() {
     }));
   }
 
+
+  function updateRafa(data) {
+    if (!editingRafa) return;
+
+    setError('');
+    setNotice('Gasto de Rafa actualizado local');
+    const updatedSource = {
+      ...editingRafa,
+      ...data,
+      id: editingRafa.id,
+      syncStatus: 'pending',
+      syncError: ''
+    };
+    const updated = normalizeLoadedData({ rafa: [updatedSource] }).rafa[0];
+
+    setRafa((current) => current.map((row) => row.id === editingRafa.id ? updated : row));
+    enqueueSyncOperation(createOperation('update', 'rafa', {
+      id: editingRafa.id,
+      data
+    }));
+    setEditingRafa(null);
+    setActive('rafa');
+  }
+
   function deleteRow(entity, row) {
     const label = entity === 'rafa' ? 'este gasto de Rafa' : 'este movimiento de la Tabla Oficial';
     const confirmText = entity === 'rafa'
@@ -2284,8 +2438,13 @@ export default function App() {
 
   function startEdit(row) {
     setEditing(row);
-    setHomeFormOpen(true);
+    setHomeFormOpen(false);
     setActive('inicio');
+  }
+
+  function startEditRafa(row) {
+    setEditingRafa(row);
+    setActive('rafa');
   }
 
   return (
@@ -2296,7 +2455,7 @@ export default function App() {
             <span>GM</span>
             <div>
               <strong>Control Gastos</strong>
-              <small>Milena · Fase 4A</small>
+              <small>Milena · Fase 4C</small>
             </div>
           </div>
           <button
@@ -2329,7 +2488,7 @@ export default function App() {
             <p className="eyebrow">Aplicación personal</p>
             <h1>Control de gastos de Milena</h1>
           </div>
-          <span className="version" title={APP_VERSION}>Fase 4B</span>
+          <span className="version" title={APP_VERSION}>Fase 4C</span>
         </header>
 
         <StatusBar
@@ -2361,12 +2520,10 @@ export default function App() {
           <InicioModule
             rows={mile}
             config={config}
-            editing={editing}
             formOpen={homeFormOpen}
             setFormOpen={setHomeFormOpen}
             saving={saving}
             onSave={saveMile}
-            onCancelEdit={() => setEditing(null)}
             onEdit={startEdit}
             onDelete={(row) => deleteRow('mile', row)}
           />
@@ -2379,6 +2536,7 @@ export default function App() {
             config={config}
             saving={saving}
             onCreate={createRafa}
+            onEdit={startEditRafa}
             onDelete={(row) => deleteRow('rafa', row)}
           />
         ) : null}
@@ -2394,6 +2552,20 @@ export default function App() {
 
         {(active === 'config' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? <ConfigPanel config={config} /> : null}
       </section>
+      <MileEditModal
+        row={editing}
+        config={config}
+        saving={saving}
+        onSubmit={saveMile}
+        onClose={() => setEditing(null)}
+      />
+      <RafaEditModal
+        row={editingRafa}
+        config={config}
+        saving={saving}
+        onSubmit={updateRafa}
+        onClose={() => setEditingRafa(null)}
+      />
       <DiagnosticPanel
         open={diagnosticOpen}
         loading={diagnosticLoading}
