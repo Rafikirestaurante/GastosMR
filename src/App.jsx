@@ -49,7 +49,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 4C · Edición de movimientos en ventanas modales';
+const APP_VERSION = 'Fase 4D · Hojas de movimientos dinámicas';
 const SYNC_DELAY_MS = 2500;
 
 function useMediaQuery(query) {
@@ -83,13 +83,42 @@ function reloadApp() {
   window.location.replace(url.toString());
 }
 
-const navItems = [
-  { id: 'dashboard', label: 'Dashboard' },
-  { id: 'inicio', label: 'Inicio' },
-  { id: 'rafa', label: 'Rafa' },
+const FIXED_NAV_START = [{ id: 'dashboard', label: 'Dashboard' }];
+const FIXED_NAV_END = [
   { id: 'pendientes', label: 'Pendientes' },
   { id: 'config', label: 'Config' }
 ];
+
+const DEFAULT_ACCOUNT_FIELDS = ['fecha', 'proveedor', 'concepto', 'tipoMovimiento', 'monto', 'categoria', 'subcategoria'];
+const ACCOUNT_FIELD_OPTIONS = [
+  { key: 'proveedor', label: 'Proveedor' },
+  { key: 'tipoMovimiento', label: 'Ingreso y egreso' },
+  { key: 'categoria', label: 'Categoría' },
+  { key: 'subcategoria', label: 'Subcategoría' }
+];
+
+function normalizeAccount(account = {}) {
+  return {
+    id: String(account.id || '').trim(),
+    name: account.id === 'mile' ? 'Mile' : String(account.name || '').trim(),
+    sheetName: String(account.sheetName || '').trim(),
+    type: account.type || 'dynamic',
+    primary: Boolean(account.primary),
+    visible: account.visible !== false,
+    order: Number(account.order || 999),
+    fields: Array.isArray(account.fields) && account.fields.length ? account.fields : DEFAULT_ACCOUNT_FIELDS,
+    active: account.active !== false
+  };
+}
+
+function accountHasField(account, field) {
+  return (account?.fields || DEFAULT_ACCOUNT_FIELDS).includes(field);
+}
+
+function accountEntity(accountId) {
+  if (accountId === 'mile' || accountId === 'rafa') return accountId;
+  return `movement:${accountId}`;
+}
 
 
 function getIngreso(row) {
@@ -278,7 +307,7 @@ function DiagnosticPanel({ open, loading, result, onClose }) {
       <div className="diagnostic-card">
         <div className="diagnostic-head">
           <div>
-            <p className="eyebrow">Fase 4A</p>
+            <p className="eyebrow">Fase 4D</p>
             <h2>Diagnóstico de conexión</h2>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar diagnóstico">×</button>
@@ -308,7 +337,7 @@ function DiagnosticPanel({ open, loading, result, onClose }) {
               <DiagnosticRow label="ID de Google Sheet configurado" value={configuredSpreadsheetId || readDiagnosticPath(result, 'configuredSpreadsheetId', '')} />
               <DiagnosticRow label="Google Sheet conectado" value={spreadsheetOk ? 'Sí' : 'No'} danger={!spreadsheetOk} />
               <DiagnosticRow label="Nombre del archivo" value={readDiagnosticPath(result, 'spreadsheet.name', '')} />
-              <DiagnosticRow label="Tabla Oficial" value={readDiagnosticPath(result, 'spreadsheet.tablaOficialSheet', false) ? 'Existe' : 'No encontrada'} danger={!readDiagnosticPath(result, 'spreadsheet.tablaOficialSheet', false)} />
+              <DiagnosticRow label="Mile (Tabla Oficial)" value={readDiagnosticPath(result, 'spreadsheet.tablaOficialSheet', false) ? 'Existe' : 'No encontrada'} danger={!readDiagnosticPath(result, 'spreadsheet.tablaOficialSheet', false)} />
               <DiagnosticRow label="Recordatorios" value={readDiagnosticPath(result, 'spreadsheet.recordatoriosSheet', false) ? 'Existe' : 'Se creará al sincronizar'} />
             </div>
 
@@ -1772,6 +1801,438 @@ function RafaModule({ rows, config, onCreate, onEdit, onDelete, saving }) {
   );
 }
 
+
+function normalizeCommonMovement(row = {}) {
+  const directIngreso = getIngreso(row);
+  const directEgreso = getEgreso(row);
+  const amount = parseAmount(row.monto);
+  const movementType = normalizeText(row.tipoMovimiento || (directIngreso > 0 ? 'Ingreso' : 'Egreso'));
+  const ingreso = directIngreso > 0 ? directIngreso : movementType === 'ingreso' ? amount : 0;
+  const egreso = directEgreso > 0 ? directEgreso : ingreso <= 0 ? amount : 0;
+  const fechaKey = toDateKey(row.fecha);
+  return {
+    ...row,
+    proveedor: row.proveedor || '',
+    concepto: row.concepto || '',
+    ingreso,
+    egreso,
+    tipoMovimiento: ingreso > 0 ? 'Ingreso' : 'Egreso',
+    monto: ingreso > 0 ? ingreso : egreso || parseAmount(row.monto),
+    categoria: row.categoria || '',
+    subcategoria: row.subcategoria || '',
+    estado: row.estado || 'Activo',
+    creadoEn: row.creadoEn || row.creado_en || '',
+    actualizadoEn: row.actualizadoEn || row.actualizado_en || '',
+    _ingreso: ingreso,
+    _egreso: egreso,
+    _neto: ingreso - egreso,
+    _fechaKey: fechaKey,
+    _monthKey: fechaKey ? fechaKey.slice(0, 7) : '',
+    syncStatus: row.syncStatus || 'synced',
+    syncError: row.syncError || ''
+  };
+}
+
+function rowsWithRunningBalance(rows) {
+  let runningBalance = 0;
+  return [...rows].sort(compareOfficialRowsAsc).map((row) => {
+    runningBalance += getIngreso(row) - getEgreso(row);
+    return { ...row, saldoAcumulado: runningBalance };
+  });
+}
+
+function accountFormInitial(row, account) {
+  const source = row || {};
+  return {
+    fecha: source.fecha || todayISO(),
+    proveedor: source.proveedor || '',
+    concepto: source.concepto || '',
+    tipoMovimiento: accountHasField(account, 'tipoMovimiento') ? (source.tipoMovimiento || getMovementType(source) || 'Egreso') : 'Egreso',
+    monto: source.monto || getMovementAmount(source) || '',
+    categoria: source.categoria || '',
+    subcategoria: source.subcategoria || ''
+  };
+}
+
+function AccountMovementForm({ account, config, initialData, editingId, saving, onSubmit, onCancel }) {
+  const [form, setForm] = useState(() => accountFormInitial(initialData, account));
+  const [localError, setLocalError] = useState('');
+
+  useEffect(() => {
+    setForm(accountFormInitial(initialData, account));
+    setLocalError('');
+  }, [initialData, account?.id]);
+
+  function update(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function handleSubmit(event) {
+    event.preventDefault();
+    const required = ['fecha', 'concepto', 'monto'];
+    if (accountHasField(account, 'proveedor')) required.push('proveedor');
+    if (account.id === 'rafa') required.push('categoria');
+    const validation = requireFields(form, required);
+    if (validation) {
+      setLocalError(validation);
+      return;
+    }
+    onSubmit(toOfficialPayload({
+      ...form,
+      proveedor: accountHasField(account, 'proveedor') ? form.proveedor : '',
+      tipoMovimiento: accountHasField(account, 'tipoMovimiento') ? form.tipoMovimiento : 'Egreso',
+      categoria: accountHasField(account, 'categoria') ? form.categoria : '',
+      subcategoria: accountHasField(account, 'subcategoria') ? form.subcategoria : '',
+      monto: parseAmount(form.monto)
+    }));
+  }
+
+  return (
+    <form className="form-grid" onSubmit={handleSubmit}>
+      <label>
+        Fecha <span>*</span>
+        <input type="date" value={form.fecha} onChange={(event) => update('fecha', event.target.value)} />
+      </label>
+
+      {accountHasField(account, 'proveedor') ? (
+        <label>
+          Proveedor <span>*</span>
+          <input value={form.proveedor} onChange={(event) => update('proveedor', event.target.value)} placeholder="Ej. Supermercado" />
+        </label>
+      ) : null}
+
+      <label className="wide">
+        Concepto <span>*</span>
+        <input value={form.concepto} onChange={(event) => update('concepto', event.target.value)} placeholder="Describe el movimiento" />
+      </label>
+
+      {accountHasField(account, 'tipoMovimiento') ? (
+        <label>
+          Tipo de movimiento <span>*</span>
+          <select value={form.tipoMovimiento} onChange={(event) => update('tipoMovimiento', event.target.value)}>
+            {(config.tiposMovimiento.length ? config.tiposMovimiento : ['Ingreso', 'Egreso']).map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+        </label>
+      ) : null}
+
+      <label>
+        Monto <span>*</span>
+        <input type="number" min="1" value={form.monto} onChange={(event) => update('monto', event.target.value)} placeholder="0" />
+      </label>
+
+      {accountHasField(account, 'categoria') ? (
+        <label>
+          Categoría {account.id === 'rafa' ? <span>*</span> : null}
+          <select value={form.categoria} onChange={(event) => update('categoria', event.target.value)}>
+            <option value="">Seleccionar</option>
+            {config.categorias.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+        </label>
+      ) : null}
+
+      {accountHasField(account, 'subcategoria') ? (
+        <label>
+          Subcategoría
+          <select value={form.subcategoria} onChange={(event) => update('subcategoria', event.target.value)}>
+            <option value="">Seleccionar</option>
+            {config.subcategorias.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+        </label>
+      ) : null}
+
+      {localError ? <p className="form-error wide">{localError}</p> : null}
+      <div className="actions wide">
+        <button type="submit" disabled={saving}>{saving ? 'Guardando...' : editingId ? 'Actualizar movimiento' : 'Guardar movimiento'}</button>
+        {onCancel ? <button className="secondary" type="button" onClick={onCancel}>{editingId ? 'Cancelar edición' : 'Cerrar'}</button> : null}
+      </div>
+    </form>
+  );
+}
+
+function AccountEditModal({ context, config, saving, onSubmit, onClose }) {
+  const account = context?.account;
+  const row = context?.row;
+  return (
+    <EditMovementModal
+      open={Boolean(account && row)}
+      eyebrow={account?.name || 'Hoja'}
+      title={`Editar movimiento de ${account?.name || ''}`}
+      onClose={onClose}
+    >
+      {account && row ? (
+        <AccountMovementForm
+          account={account}
+          config={config}
+          initialData={row}
+          editingId={row.id}
+          saving={saving}
+          onSubmit={onSubmit}
+          onCancel={onClose}
+        />
+      ) : null}
+    </EditMovementModal>
+  );
+}
+
+function AccountModule({ account, rows, config, saving, onCreate, onEdit, onDelete }) {
+  const [formOpen, setFormOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [type, setType] = useState('');
+  const [category, setCategory] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [viewMode, setViewMode] = useState(() => window.localStorage.getItem(`control-gastos-account-view-${account.id}`) || 'table');
+  const isMobileView = useMediaQuery('(max-width: 720px)');
+  const activeViewMode = isMobileView ? viewMode : 'table';
+
+  useEffect(() => {
+    window.localStorage.setItem(`control-gastos-account-view-${account.id}`, viewMode);
+  }, [account.id, viewMode]);
+
+  const balancedRows = useMemo(() => rowsWithRunningBalance(rows), [rows]);
+  const filtered = useMemo(() => {
+    const q = normalizeText(query);
+    return balancedRows.filter((row) => {
+      const matchesQuery = !q || [row.proveedor, row.concepto, row.categoria, row.subcategoria].some((value) => normalizeText(value).includes(q));
+      const matchesType = !type || getMovementType(row) === type;
+      const matchesCategory = !category || row.categoria === category;
+      return matchesQuery && matchesType && matchesCategory && (!from || isDateInRange(row.fecha, from, '')) && (!to || isDateInRange(row.fecha, '', to));
+    }).sort((a, b) => getRowDateKey(b).localeCompare(getRowDateKey(a)) || String(b.id).localeCompare(String(a.id)));
+  }, [balancedRows, query, type, category, from, to]);
+
+  const totalIngresos = sumBy(rows, getIngreso);
+  const totalEgresos = sumBy(rows, getEgreso);
+  const saldo = totalIngresos - totalEgresos;
+  const showSplitAmounts = accountHasField(account, 'tipoMovimiento');
+
+  return (
+    <>
+      <section className="panel home-header-panel">
+        <div className="panel-head home-main-head">
+          <div>
+            <p className="eyebrow">{account.sheetName || 'Hoja de movimientos'}</p>
+            <h2>{account.name}</h2>
+            <p className="muted home-description">Registra movimientos y consulta su historial desde un solo lugar.</p>
+          </div>
+          <button type="button" onClick={() => setFormOpen((current) => !current)}>{formOpen ? 'Cerrar formulario' : '+ Nuevo registro'}</button>
+        </div>
+      </section>
+
+      {formOpen ? (
+        <section className="panel home-form-panel">
+          <div className="panel-head"><div><p className="eyebrow">{account.name}</p><h2>Nuevo movimiento</h2></div></div>
+          <AccountMovementForm account={account} config={config} saving={saving} onSubmit={(data) => { onCreate(data); setFormOpen(false); }} onCancel={() => setFormOpen(false)} />
+        </section>
+      ) : null}
+
+      <section className="panel">
+        <div className="account-summary-strip">
+          <div><span>Ingresos</span><strong>{money(totalIngresos)}</strong></div>
+          <div><span>Egresos</span><strong>{money(totalEgresos)}</strong></div>
+          <div><span>Saldo</span><strong>{money(saldo)}</strong></div>
+        </div>
+
+        <div className="panel-head history-heading">
+          <div><p className="eyebrow">Historial de movimientos</p><h2>{account.name}</h2></div>
+          <div className="history-head-actions">
+            <strong>{filtered.length} registros</strong>
+            {isMobileView ? (
+              <div className="view-switch" role="group" aria-label={`Cambiar vista de ${account.name}`}>
+                <button type="button" className={viewMode === 'table' ? 'active' : ''} onClick={() => setViewMode('table')}>Tabla</button>
+                <button type="button" className={viewMode === 'cards' ? 'active' : ''} onClick={() => setViewMode('cards')}>Tarjetas</button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="filters">
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por concepto o proveedor" />
+          {showSplitAmounts ? (
+            <select value={type} onChange={(event) => setType(event.target.value)}><option value="">Tipo: todos</option>{(config.tiposMovimiento.length ? config.tiposMovimiento : ['Ingreso', 'Egreso']).map((item) => <option key={item} value={item}>{item}</option>)}</select>
+          ) : null}
+          {accountHasField(account, 'categoria') ? (
+            <select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">Categoría: todas</option>{config.categorias.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+          ) : null}
+          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} aria-label="Fecha desde" />
+          <input type="date" value={to} onChange={(event) => setTo(event.target.value)} aria-label="Fecha hasta" />
+        </div>
+
+        {activeViewMode === 'cards' ? (
+          <div className="history-card-grid">
+            {filtered.map((row) => (
+              <article className="history-card" key={`${account.id}-card-${row.id}`}>
+                <div className="mobile-record-head">
+                  <div><strong>{row.concepto}</strong><span>{formatShortDate(row.fecha)}</span></div>
+                  <em className={getIngreso(row) > 0 ? 'income' : 'expense'}>{getIngreso(row) > 0 ? '+' : '-'}{money(getMovementAmount(row))}</em>
+                </div>
+                <div className="mobile-record-meta">
+                  {accountHasField(account, 'proveedor') ? <span><b>Proveedor:</b> {row.proveedor || '-'}</span> : null}
+                  {showSplitAmounts ? <><span><b>Ingreso:</b> {getIngreso(row) > 0 ? money(getIngreso(row)) : '-'}</span><span><b>Egreso:</b> {getEgreso(row) > 0 ? money(getEgreso(row)) : '-'}</span></> : <span><b>Monto:</b> {money(getMovementAmount(row))}</span>}
+                  <span className="balance-card-line"><b>Saldo acumulado:</b> {money(row.saldoAcumulado)}</span>
+                  {accountHasField(account, 'categoria') ? <span><b>Categoría:</b> {row.categoria || 'Sin categoría'}</span> : null}
+                  {accountHasField(account, 'subcategoria') ? <span><b>Subcategoría:</b> {row.subcategoria || 'Sin subcategoría'}</span> : null}
+                  <span><b>Sincronización:</b> <SyncPill row={row} /></span>
+                  {row.syncError ? <span className="danger-text"><b>Error:</b> {row.syncError}</span> : null}
+                </div>
+                <div className="row-actions mobile-actions"><button className="small" type="button" onClick={() => onEdit(row)}>Editar</button><button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button></div>
+              </article>
+            ))}
+            {filtered.length === 0 ? <div className="empty mobile-empty">No hay movimientos con esos filtros.</div> : null}
+          </div>
+        ) : (
+          <>
+            <p className="table-scroll-hint">Desliza la tabla hacia los lados para ver más columnas.</p>
+            <div className="table-wrap home-history-table">
+              <table>
+                <thead><tr><th>Fecha</th>{accountHasField(account, 'proveedor') ? <th>Proveedor</th> : null}<th>Concepto</th>{showSplitAmounts ? <><th>Ingreso</th><th>Egreso</th></> : <th>Monto</th>}<th>Saldo acumulado</th>{accountHasField(account, 'categoria') ? <th>Categoría</th> : null}{accountHasField(account, 'subcategoria') ? <th>Subcategoría</th> : null}<th>Sync</th><th>Acciones</th></tr></thead>
+                <tbody>
+                  {filtered.map((row) => (
+                    <tr key={row.id}><td>{formatShortDate(row.fecha)}</td>{accountHasField(account, 'proveedor') ? <td>{row.proveedor || '-'}</td> : null}<td>{row.concepto}</td>{showSplitAmounts ? <><td className="income-cell">{getIngreso(row) > 0 ? money(getIngreso(row)) : '-'}</td><td className="expense-cell">{getEgreso(row) > 0 ? money(getEgreso(row)) : '-'}</td></> : <td className="expense-cell">{money(getMovementAmount(row))}</td>}<td className="balance-cell">{money(row.saldoAcumulado)}</td>{accountHasField(account, 'categoria') ? <td>{row.categoria || '-'}</td> : null}{accountHasField(account, 'subcategoria') ? <td>{row.subcategoria || '-'}</td> : null}<td><SyncPill row={row} /></td><td className="row-actions"><button className="small" type="button" onClick={() => onEdit(row)}>Editar</button><button className="small danger-button" type="button" onClick={() => onDelete(row)}>Borrar</button></td></tr>
+                  ))}
+                  {filtered.length === 0 ? <tr><td colSpan="10" className="empty">No hay movimientos con esos filtros.</td></tr> : null}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </section>
+    </>
+  );
+}
+
+function DynamicDashboard({ accounts, rowsByAccount, month, setMonth }) {
+  const [selectedAccount, setSelectedAccount] = useState('all');
+  const initialRange = getMonthBounds(month);
+  const [rangeOpen, setRangeOpen] = useState(false);
+  const [rangeFrom, setRangeFrom] = useState(initialRange.from);
+  const [rangeTo, setRangeTo] = useState(initialRange.to);
+  const [visibleColumns, setVisibleColumns] = useState(DEFAULT_DASHBOARD_COLUMNS);
+
+  const selectedRows = useMemo(() => {
+    const sourceAccounts = selectedAccount === 'all' ? accounts : accounts.filter((account) => account.id === selectedAccount);
+    return sourceAccounts.flatMap((account) => (rowsByAccount[account.id] || []).map((row) => ({ ...row, accountId: account.id, accountName: account.name })));
+  }, [accounts, rowsByAccount, selectedAccount]);
+
+  const balancedRows = useMemo(() => rowsWithRunningBalance(selectedRows), [selectedRows]);
+  const monthRows = balancedRows.filter((row) => (row._monthKey || getMonthKey(row.fecha)) === month);
+  const rangeRows = balancedRows.filter((row) => isDateInRange(row.fecha, rangeFrom, rangeTo));
+  const totalIngresos = sumBy(monthRows, getIngreso);
+  const totalEgresos = sumBy(monthRows, getEgreso);
+  const saldoMes = monthRows.length ? monthRows[monthRows.length - 1].saldoAcumulado : 0;
+  const saldoTotal = balancedRows.length ? balancedRows[balancedRows.length - 1].saldoAcumulado : 0;
+  const rangeIngresos = sumBy(rangeRows, getIngreso);
+  const rangeEgresos = sumBy(rangeRows, getEgreso);
+  const byCategory = Object.entries(monthRows.reduce((acc, row) => { if (getEgreso(row) > 0) acc[row.categoria || 'Sin categoría'] = (acc[row.categoria || 'Sin categoría'] || 0) + getEgreso(row); return acc; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const lastRows = [...selectedRows].sort((a, b) => getRowDateKey(b).localeCompare(getRowDateKey(a)) || String(b.id).localeCompare(String(a.id))).slice(0, 6);
+  const tableColumns = selectedAccount === 'all' ? [{ key: 'accountName', label: 'Hoja' }, ...DASHBOARD_TABLE_COLUMNS] : DASHBOARD_TABLE_COLUMNS;
+
+  function renderCell(row, key) {
+    if (key === 'accountName') return row.accountName;
+    if (key === 'fecha') return formatShortDate(row.fecha);
+    if (key === 'proveedor') return row.proveedor || '-';
+    if (key === 'concepto') return row.concepto || '-';
+    if (key === 'ingreso') return getIngreso(row) > 0 ? money(getIngreso(row)) : '-';
+    if (key === 'egreso') return getEgreso(row) > 0 ? money(getEgreso(row)) : '-';
+    if (key === 'categoria') return row.categoria || '-';
+    if (key === 'subcategoria') return row.subcategoria || '-';
+    if (key === 'saldoAcumulado') return money(row.saldoAcumulado);
+    return '-';
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <div><p className="eyebrow">Resumen consolidado</p><h2>Dashboard</h2></div>
+        <div className="dashboard-selector-group">
+          <label>Hoja<select value={selectedAccount} onChange={(event) => setSelectedAccount(event.target.value)}><option value="all">Todas las hojas</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+          <label className="month-picker">Mes<input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
+        </div>
+      </div>
+      <div className="cards-grid"><Card title="Ingresos del mes" value={money(totalIngresos)} /><Card title="Egresos del mes" value={money(totalEgresos)} /><Card title="Saldo del mes" value={money(saldoMes)} /><Card title="Saldo acumulado" value={money(saldoTotal)} detail={selectedAccount === 'all' ? 'Todas las hojas visibles' : 'Hoja seleccionada'} /></div>
+      <div className="dashboard-tools"><div><p className="eyebrow">Movimientos por rango</p><h3>Historial con saldo acumulado</h3><p className="muted range-caption">{rangeFrom || 'sin fecha inicial'} a {rangeTo || 'sin fecha final'} · {rangeRows.length} registros</p></div><div className="dashboard-tool-actions"><button className="secondary" type="button" onClick={() => setRangeOpen((current) => !current)}>{rangeOpen ? 'Ocultar rango' : 'Seleccionar rango'}</button><button className="secondary" type="button" onClick={() => { const next = getMonthBounds(month); setRangeFrom(next.from); setRangeTo(next.to); setRangeOpen(true); }}>Usar mes seleccionado</button></div></div>
+      {rangeOpen ? <div className="date-range-panel"><label>Desde<input type="date" value={rangeFrom} onChange={(event) => setRangeFrom(event.target.value)} /></label><label>Hasta<input type="date" value={rangeTo} onChange={(event) => setRangeTo(event.target.value)} /></label><button className="secondary" type="button" onClick={() => { setRangeFrom(''); setRangeTo(''); }}>Ver todo</button></div> : null}
+      <div className="range-summary-grid"><Card title="Ingresos del rango" value={money(rangeIngresos)} /><Card title="Egresos del rango" value={money(rangeEgresos)} /><Card title="Saldo del rango" value={money(rangeIngresos - rangeEgresos)} /></div>
+      <details className="column-toggle-panel"><summary>Mostrar columnas</summary><div className="column-toggle-list">{tableColumns.map((column) => <label className="checkbox-chip" key={column.key}><input type="checkbox" checked={column.key === 'accountName' || visibleColumns.includes(column.key)} disabled={column.key === 'accountName'} onChange={() => setVisibleColumns((current) => current.includes(column.key) ? (current.length > 1 ? current.filter((item) => item !== column.key) : current) : [...current, column.key])} /><span>{column.label}</span></label>)}</div></details>
+      <p className="table-scroll-hint">Desliza la tabla hacia los lados para ver más columnas.</p>
+      <div className="table-wrap dashboard-table-wrap"><table><thead><tr>{tableColumns.filter((column) => column.key === 'accountName' || visibleColumns.includes(column.key)).map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>{rangeRows.map((row) => <tr key={`${row.accountId}-${row.id}`}>{tableColumns.filter((column) => column.key === 'accountName' || visibleColumns.includes(column.key)).map((column) => <td key={column.key} className={getDashboardCellClass(column.key)}>{renderCell(row, column.key)}</td>)}</tr>)}{rangeRows.length === 0 ? <tr><td colSpan="10" className="empty">No hay registros en este rango.</td></tr> : null}</tbody></table></div>
+      <div className="two-col dashboard-bottom-panels"><article className="subpanel"><h3>Gastos por categoría</h3>{byCategory.length ? <div className="category-list">{byCategory.map(([categoryName, total]) => <div className="category-row" key={categoryName}><span>{categoryName}</span><strong>{money(total)}</strong></div>)}</div> : <p className="muted">No hay egresos para este mes.</p>}</article><article className="subpanel"><h3>Últimos movimientos</h3><div className="mini-list">{lastRows.map((row) => <div className="mini-row" key={`${row.accountId}-${row.id}`}><div><strong>{row.concepto}</strong><span>{row.accountName} · {formatShortDate(row.fecha)}</span></div><em className={getIngreso(row) > 0 ? 'income' : 'expense'}>{getIngreso(row) > 0 ? '+' : '-'}{money(getMovementAmount(row))}</em></div>)}</div></article></div>
+    </section>
+  );
+}
+
+function DynamicConfigPanel({ config, accounts, busy, onCreateAccount, onUpdateAccount, onDeactivateAccount }) {
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newAccount, setNewAccount] = useState({ name: '', sheetName: '', visible: true, fields: DEFAULT_ACCOUNT_FIELDS });
+  const [drafts, setDrafts] = useState({});
+  const [localError, setLocalError] = useState('');
+
+  useEffect(() => {
+    setDrafts(Object.fromEntries(accounts.map((account) => [account.id, { ...account, fields: [...account.fields] }])));
+  }, [accounts]);
+
+  function toggleNewField(field) {
+    setNewAccount((current) => ({ ...current, fields: current.fields.includes(field) ? current.fields.filter((item) => item !== field) : [...current.fields, field] }));
+  }
+
+  async function submitNew(event) {
+    event.preventDefault();
+    if (!newAccount.name.trim()) { setLocalError('Escribe el nombre de la nueva hoja.'); return; }
+    const created = await onCreateAccount({ ...newAccount, name: newAccount.name.trim(), sheetName: newAccount.sheetName.trim() });
+    if (created) {
+      setNewAccount({ name: '', sheetName: '', visible: true, fields: DEFAULT_ACCOUNT_FIELDS });
+      setCreateOpen(false);
+      setLocalError('');
+    }
+  }
+
+  function patchDraft(id, changes) {
+    setDrafts((current) => ({ ...current, [id]: { ...current[id], ...changes } }));
+  }
+
+  function toggleDraftField(id, field) {
+    const draft = drafts[id];
+    if (!draft) return;
+    const fields = draft.fields.includes(field) ? draft.fields.filter((item) => item !== field) : [...draft.fields, field];
+    patchDraft(id, { fields });
+  }
+
+  return (
+    <>
+      <section className="panel">
+        <div className="panel-head"><div><p className="eyebrow">Administración dinámica</p><h2>Hojas de movimientos</h2><p className="muted">Mile corresponde a la antigua Tabla Oficial. Puedes crear nuevas hojas sin modificar el código.</p></div><button type="button" onClick={() => setCreateOpen((current) => !current)}>{createOpen ? 'Cerrar' : '+ Nueva hoja'}</button></div>
+        {createOpen ? (
+          <form className="sheet-create-form" onSubmit={submitNew}>
+            <label>Nombre visible <span>*</span><input value={newAccount.name} onChange={(event) => setNewAccount((current) => ({ ...current, name: event.target.value }))} placeholder="Ej. Hogar" /></label>
+            <label>Nombre en Google Sheets<input value={newAccount.sheetName} onChange={(event) => setNewAccount((current) => ({ ...current, sheetName: event.target.value }))} placeholder="Se crea automáticamente" /></label>
+            <label className="checkbox-line"><input type="checkbox" checked={newAccount.visible} onChange={(event) => setNewAccount((current) => ({ ...current, visible: event.target.checked }))} /> Mostrar en el menú</label>
+            <div className="field-selector wide"><strong>Campos visibles</strong><div>{ACCOUNT_FIELD_OPTIONS.map((option) => <label className="checkbox-chip" key={option.key}><input type="checkbox" checked={newAccount.fields.includes(option.key)} onChange={() => toggleNewField(option.key)} /><span>{option.label}</span></label>)}</div><small>Fecha, concepto y monto siempre estarán disponibles.</small></div>
+            {localError ? <p className="form-error wide">{localError}</p> : null}
+            <div className="actions wide"><button type="submit" disabled={busy}>{busy ? 'Creando...' : 'Crear hoja en Google Sheets'}</button></div>
+          </form>
+        ) : null}
+        <div className="accounts-config-list">
+          {accounts.map((account) => {
+            const draft = drafts[account.id] || account;
+            return (
+              <article className="account-config-card" key={account.id}>
+                <div className="account-config-title"><div><strong>{account.name}</strong><span>{account.sheetName} · {account.type === 'dynamic' ? 'Dinámica' : 'Existente'}</span></div><span className={account.visible ? 'account-visible-badge' : 'account-hidden-badge'}>{account.visible ? 'En menú' : 'Oculta'}</span></div>
+                <div className="account-config-grid">
+                  <label>Nombre visible<input value={account.id === 'mile' ? 'Mile' : (draft.name || '')} disabled={account.id === 'mile'} onChange={(event) => patchDraft(account.id, { name: event.target.value })} /></label>
+                  <label>Orden<input type="number" min="1" value={draft.order || 1} onChange={(event) => patchDraft(account.id, { order: Number(event.target.value) })} /></label>
+                  <label className="checkbox-line"><input type="checkbox" checked={draft.visible !== false} onChange={(event) => patchDraft(account.id, { visible: event.target.checked })} /> Mostrar en navegación</label>
+                </div>
+                <div className="field-selector"><strong>Campos de esta hoja</strong><div>{ACCOUNT_FIELD_OPTIONS.map((option) => <label className="checkbox-chip" key={option.key}><input type="checkbox" checked={(draft.fields || []).includes(option.key)} onChange={() => toggleDraftField(account.id, option.key)} /><span>{option.label}</span></label>)}</div></div>
+                <div className="account-config-actions"><button type="button" onClick={() => onUpdateAccount(account.id, { name: draft.name, visible: draft.visible, order: draft.order, fields: draft.fields })} disabled={busy}>Guardar cambios</button>{account.type === 'dynamic' ? <button type="button" className="secondary danger-button" onClick={() => onDeactivateAccount(account)} disabled={busy}>Archivar hoja</button> : null}</div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+      <section className="panel"><div className="panel-head"><div><p className="eyebrow">Listas desde Google Sheets</p><h2>Categorías y tipos</h2></div></div><div className="three-col"><article className="subpanel"><h3>Categorías</h3><ul className="tag-list">{config.categorias.map((item) => <li key={item}>{item}</li>)}</ul></article><article className="subpanel"><h3>Tipo de movimiento</h3><ul className="tag-list">{config.tiposMovimiento.map((item) => <li key={item}>{item}</li>)}</ul></article><article className="subpanel"><h3>Subcategorías</h3><ul className="tag-list">{config.subcategorias.map((item) => <li key={item}>{item}</li>)}</ul></article></div><p className="muted note">Estas listas continúan administrándose desde la pestaña Configuracion de Google Sheets.</p></section>
+    </>
+  );
+}
+
 function ConfigPanel({ config }) {
   return (
     <section className="panel">
@@ -1804,34 +2265,37 @@ function ConfigPanel({ config }) {
 
 function normalizeLoadedData(data = {}) {
   const safeConfig = data.config || { categorias: [], tiposMovimiento: [], subcategorias: [] };
+  const fallbackAccounts = [
+    normalizeAccount({ id: 'mile', name: 'Mile', sheetName: 'Tabla Oficial', type: 'legacy_mile', primary: true, visible: true, order: 1, fields: DEFAULT_ACCOUNT_FIELDS }),
+    normalizeAccount({ id: 'rafa', name: 'Rafa', sheetName: 'Gastos Rafa', type: 'legacy_rafa', visible: true, order: 2, fields: ['fecha', 'concepto', 'monto', 'categoria'] })
+  ];
+  const accounts = (data.accounts?.length ? data.accounts : fallbackAccounts)
+    .map(normalizeAccount)
+    .filter((account) => account.id && account.active)
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+
   const mileRows = (data.mile || [])
     .filter((row) => normalizeText(row.estado || 'Activo') !== 'eliminado')
-    .map((row) => {
-      const ingreso = parseAmount(row.ingreso);
-      const egreso = parseAmount(row.egreso);
-      const fechaKey = toDateKey(row.fecha);
-      return {
-        ...row,
-        estado: row.estado || 'Activo',
-        creadoEn: row.creadoEn || row.creado_en || '',
-        actualizadoEn: row.actualizadoEn || row.actualizado_en || '',
-        _ingreso: ingreso,
-        _egreso: egreso,
-        _neto: ingreso - egreso,
-        _fechaKey: fechaKey,
-        _monthKey: fechaKey ? fechaKey.slice(0, 7) : ''
-      };
-    });
+    .map(normalizeCommonMovement);
 
-  const rafaRows = (data.rafa || []).map((row) => {
-    const fechaKey = toDateKey(row.fecha);
-    return {
-      ...row,
-      monto: parseAmount(row.monto),
-      _fechaKey: fechaKey,
-      _monthKey: fechaKey ? fechaKey.slice(0, 7) : ''
-    };
-  });
+  const rafaRows = (data.rafa || []).map((row) => normalizeCommonMovement({
+    ...row,
+    proveedor: row.proveedor || '',
+    ingreso: 0,
+    egreso: parseAmount(row.egreso || row.monto),
+    tipoMovimiento: 'Egreso',
+    monto: parseAmount(row.monto || row.egreso),
+    subcategoria: row.subcategoria || ''
+  }));
+
+  const dynamicMovements = Object.fromEntries(
+    Object.entries(data.dynamicMovements || {}).map(([accountId, rows]) => [
+      accountId,
+      (rows || [])
+        .filter((row) => normalizeText(row.estado || 'Activo') !== 'eliminado')
+        .map(normalizeCommonMovement)
+    ])
+  );
 
   const reminderRows = (data.reminders || [])
     .map(normalizeReminderData)
@@ -1839,8 +2303,10 @@ function normalizeLoadedData(data = {}) {
 
   return {
     config: safeConfig,
+    accounts,
     mile: mileRows,
     rafa: rafaRows,
+    dynamicMovements,
     reminders: reminderRows
   };
 }
@@ -1848,20 +2314,21 @@ function normalizeLoadedData(data = {}) {
 export default function App() {
   const [active, setActive] = useState('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [homeFormOpen, setHomeFormOpen] = useState(false);
   const [month, setMonth] = useState(currentMonthKey());
   const [config, setConfig] = useState({ categorias: [], tiposMovimiento: [], subcategorias: [] });
+  const [accounts, setAccounts] = useState(() => normalizeLoadedData({}).accounts);
   const [mile, setMile] = useState([]);
   const [rafa, setRafa] = useState([]);
+  const [dynamicMovements, setDynamicMovements] = useState({});
   const [reminders, setReminders] = useState(() => readStoredReminders());
   const [demoMode, setDemoMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving] = useState(false);
+  const [configBusy, setConfigBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [cachedAt, setCachedAt] = useState('');
-  const [editing, setEditing] = useState(null);
-  const [editingRafa, setEditingRafa] = useState(null);
+  const [editingContext, setEditingContext] = useState(null);
   const [syncQueue, setSyncQueueState] = useState(() => getSyncQueue());
   const [syncing, setSyncing] = useState(false);
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
@@ -1877,8 +2344,8 @@ export default function App() {
 
   const mileRef = useRef(mile);
   const rafaRef = useRef(rafa);
+  const dynamicRef = useRef(dynamicMovements);
   const remindersRef = useRef(reminders);
-  const configRef = useRef(config);
   const queueRef = useRef(syncQueue);
   const idMapRef = useRef(getIdMap());
   const syncTimerRef = useRef(null);
@@ -1888,11 +2355,28 @@ export default function App() {
   const pendingSyncCount = syncQueue.filter((item) => item.status !== 'done').length;
   const failedSyncCount = syncQueue.filter((item) => item.status === 'failed').length;
 
+  const rowsByAccount = useMemo(() => {
+    const result = { mile, rafa };
+    accounts.forEach((account) => {
+      if (account.id !== 'mile' && account.id !== 'rafa') result[account.id] = dynamicMovements[account.id] || [];
+    });
+    return result;
+  }, [accounts, mile, rafa, dynamicMovements]);
+
+  const navItems = useMemo(() => [
+    ...FIXED_NAV_START,
+    ...accounts.filter((account) => account.visible && account.active).sort((a, b) => a.order - b.order).map((account) => ({ id: `account:${account.id}`, label: account.name })),
+    ...FIXED_NAV_END
+  ], [accounts]);
+
+  const activeAccountId = active.startsWith('account:') ? active.slice(8) : '';
+  const activeAccount = accounts.find((account) => account.id === activeAccountId) || null;
+
   useEffect(() => { mileRef.current = mile; }, [mile]);
   useEffect(() => { rafaRef.current = rafa; }, [rafa]);
+  useEffect(() => { dynamicRef.current = dynamicMovements; }, [dynamicMovements]);
   useEffect(() => { remindersRef.current = reminders; }, [reminders]);
   useEffect(() => { saveStoredReminders(reminders); }, [reminders]);
-  useEffect(() => { configRef.current = config; }, [config]);
   useEffect(() => { queueRef.current = syncQueue; }, [syncQueue]);
   useEffect(() => { connectionGuardRef.current = connectionGuard; }, [connectionGuard]);
 
@@ -1903,10 +2387,11 @@ export default function App() {
   }, [notice]);
 
   useEffect(() => {
-    if (config.categorias.length || config.tiposMovimiento.length || config.subcategorias.length || mile.length || rafa.length || reminders.length) {
-      saveWorkingSnapshot({ config, mile, rafa, reminders });
+    const dynamicCount = Object.values(dynamicMovements).reduce((total, rows) => total + rows.length, 0);
+    if (config.categorias.length || accounts.length || mile.length || rafa.length || dynamicCount || reminders.length) {
+      saveWorkingSnapshot({ config, accounts, mile, rafa, dynamicMovements, reminders });
     }
-  }, [config, mile, rafa, reminders]);
+  }, [config, accounts, mile, rafa, dynamicMovements, reminders]);
 
   function setSyncQueue(nextQueue) {
     const cleanQueue = Array.isArray(nextQueue) ? nextQueue.filter((item) => item.status !== 'done') : [];
@@ -1920,6 +2405,18 @@ export default function App() {
     setSyncQueue(nextQueue);
   }
 
+  function mergeRows(remoteRows, localRows) {
+    const result = [...(remoteRows || [])];
+    (localRows || []).filter((row) => ['pending', 'syncing', 'failed'].includes(row.syncStatus)).forEach((localRow) => {
+      const realId = resolveSyncedId(localRow.id, idMapRef.current);
+      const existingIndex = result.findIndex((row) => row.id === localRow.id || row.id === realId);
+      const rowToKeep = { ...localRow, id: existingIndex >= 0 ? result[existingIndex].id : localRow.id };
+      if (existingIndex >= 0) result[existingIndex] = rowToKeep;
+      else result.unshift(rowToKeep);
+    });
+    return result;
+  }
+
   function applyLoadedData(data, options = {}) {
     const { keepPendingLocal = true } = options;
     const normalized = normalizeLoadedData(data);
@@ -1928,36 +2425,23 @@ export default function App() {
     const hasPending = queueRef.current.some((item) => item.status !== 'done');
 
     if (keepPendingLocal && hasPending && localNormalized) {
-      const mergeRows = (remoteRows, localRows) => {
-        const result = [...remoteRows];
-        localRows
-          .filter((row) => ['pending', 'syncing', 'failed'].includes(row.syncStatus))
-          .forEach((localRow) => {
-            const realId = resolveSyncedId(localRow.id, idMapRef.current);
-            const existingIndex = result.findIndex((row) => row.id === localRow.id || row.id === realId);
-            const rowToKeep = { ...localRow, id: existingIndex >= 0 ? result[existingIndex].id : localRow.id };
-            if (existingIndex >= 0) result[existingIndex] = rowToKeep;
-            else result.unshift(rowToKeep);
-          });
-        return result;
-      };
-
-      setConfig(normalized.config.categorias.length || normalized.config.tiposMovimiento.length || normalized.config.subcategorias.length
-        ? normalized.config
-        : localNormalized.config
-      );
+      setConfig(normalized.config.categorias.length || normalized.config.tiposMovimiento.length || normalized.config.subcategorias.length ? normalized.config : localNormalized.config);
+      setAccounts(normalized.accounts.length ? normalized.accounts : localNormalized.accounts);
       setMile(mergeRows(normalized.mile, localNormalized.mile));
       setRafa(mergeRows(normalized.rafa, localNormalized.rafa));
-      setReminders(mergeRows(normalized.reminders || [], localNormalized.reminders || []));
+      const accountIds = new Set([...Object.keys(normalized.dynamicMovements), ...Object.keys(localNormalized.dynamicMovements)]);
+      setDynamicMovements(Object.fromEntries([...accountIds].map((accountId) => [accountId, mergeRows(normalized.dynamicMovements[accountId] || [], localNormalized.dynamicMovements[accountId] || [])])));
+      setReminders(mergeRows(normalized.reminders, localNormalized.reminders));
       return;
     }
 
     setConfig(normalized.config);
+    setAccounts(normalized.accounts);
     setMile(normalized.mile);
     setRafa(normalized.rafa);
-    setReminders(normalized.reminders || []);
+    setDynamicMovements(normalized.dynamicMovements);
+    setReminders(normalized.reminders);
   }
-
 
   function updateConnectionGuard(result) {
     const guard = buildConnectionGuardFromDiagnostic(result);
@@ -1994,7 +2478,6 @@ export default function App() {
       if (openOnFailure) setDiagnosticOpen(true);
       return false;
     }
-
     if (!currentGuard?.checked) {
       const guard = await validateConnectionSilently({ openOnFailure });
       if (guard.blocked) {
@@ -2002,7 +2485,6 @@ export default function App() {
         return false;
       }
     }
-
     return true;
   }
 
@@ -2010,22 +2492,19 @@ export default function App() {
     const { silent = false, preferCache = true } = options;
     const working = getWorkingSnapshot();
     const cached = getCachedRemoteSnapshot();
-    const hasLocalData = mileRef.current.length > 0 || rafaRef.current.length > 0 || remindersRef.current.length > 0;
+    const dynamicCount = Object.values(dynamicRef.current).reduce((total, rows) => total + rows.length, 0);
+    const hasLocalData = mileRef.current.length > 0 || rafaRef.current.length > 0 || dynamicCount > 0 || remindersRef.current.length > 0;
 
     if (!silent) {
       setLoading(true);
       setError('');
       if (preferCache && working?.data && !hasLocalData) {
         applyLoadedData(working.data, { keepPendingLocal: true });
-        setDemoMode(false);
         setCachedAt(working.savedAt || 'copia local');
       } else if (preferCache && cached?.data && !hasLocalData) {
         applyLoadedData(cached.data, { keepPendingLocal: true });
-        setDemoMode(false);
         setCachedAt(cached.savedAt || 'copia local');
-      } else {
-        setCachedAt('');
-      }
+      } else setCachedAt('');
     }
 
     try {
@@ -2038,11 +2517,9 @@ export default function App() {
       if (!silent) {
         if (working?.data && !hasLocalData) {
           applyLoadedData(working.data, { keepPendingLocal: true });
-          setDemoMode(false);
           setCachedAt(working.savedAt || 'copia local');
         } else if (cached?.data && !hasLocalData) {
           applyLoadedData(cached.data, { keepPendingLocal: true });
-          setDemoMode(false);
           setCachedAt(cached.savedAt || 'copia local');
         }
         setError(err.message || 'No se pudieron cargar los datos.');
@@ -2054,9 +2531,7 @@ export default function App() {
 
   function scheduleSync(delay = SYNC_DELAY_MS) {
     if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
-    syncTimerRef.current = window.setTimeout(() => {
-      processSyncQueue();
-    }, delay);
+    syncTimerRef.current = window.setTimeout(() => processSyncQueue(), delay);
   }
 
   function enqueueSyncOperation(operation) {
@@ -2064,42 +2539,34 @@ export default function App() {
     scheduleSync();
   }
 
+  function setRowsForAccount(accountId, updater) {
+    if (accountId === 'mile') setMile(updater);
+    else if (accountId === 'rafa') setRafa(updater);
+    else setDynamicMovements((current) => ({ ...current, [accountId]: typeof updater === 'function' ? updater(current[accountId] || []) : updater }));
+  }
+
   function markRowsByOperation(operation, status, syncError = '') {
     const resolvedId = resolveSyncedId(operation.id, idMapRef.current);
-    const updater = (row) => {
-      if (row.id !== operation.id && row.id !== resolvedId) return row;
-      return {
-        ...row,
-        syncStatus: status,
-        syncError
-      };
-    };
-
-    if (operation.entity === 'rafa') setRafa((current) => current.map(updater));
-    else if (operation.entity === 'reminder') setReminders((current) => current.map(updater));
-    else setMile((current) => current.map(updater));
+    const updater = (rows) => rows.map((row) => row.id === operation.id || row.id === resolvedId ? { ...row, syncStatus: status, syncError } : row);
+    if (operation.entity === 'reminder') setReminders(updater);
+    else if (operation.entity === 'mile') setMile(updater);
+    else if (operation.entity === 'rafa') setRafa(updater);
+    else if (operation.entity.startsWith('movement:')) setRowsForAccount(operation.entity.slice(9), updater);
   }
 
   function applySyncedResponse(operation, responseData) {
     const normalizedData = responseData || null;
     const idMap = { ...idMapRef.current };
-
     if (operation.action === 'create' && normalizedData?.id && operation.id && normalizedData.id !== operation.id) {
       idMap[operation.id] = normalizedData.id;
       idMapRef.current = idMap;
       saveIdMap(idMap);
     }
-
     if (operation.action === 'delete') return;
-
-    if (!normalizedData) {
-      markRowsByOperation(operation, 'synced');
-      return;
-    }
+    if (!normalizedData) { markRowsByOperation(operation, 'synced'); return; }
 
     if (operation.entity === 'reminder') {
-      const normalized = normalizeLoadedData({ reminders: [{ ...normalizedData, syncStatus: 'synced', syncError: '' }] }).reminders[0];
-      if (!normalized) return;
+      const normalized = normalizeReminderData({ ...normalizedData, syncStatus: 'synced', syncError: '' });
       setReminders((current) => current.map((row) => {
         const realId = resolveSyncedId(row.id, idMap);
         return row.id === operation.id || row.id === normalized.id || realId === normalized.id ? normalized : row;
@@ -2107,17 +2574,9 @@ export default function App() {
       return;
     }
 
-    if (operation.entity === 'rafa') {
-      const normalized = normalizeLoadedData({ rafa: [{ ...normalizedData, syncStatus: 'synced', syncError: '' }] }).rafa[0];
-      setRafa((current) => current.map((row) => {
-        const realId = resolveSyncedId(row.id, idMap);
-        return row.id === operation.id || row.id === normalized.id || realId === normalized.id ? normalized : row;
-      }));
-      return;
-    }
-
-    const normalized = normalizeLoadedData({ mile: [{ ...normalizedData, syncStatus: 'synced', syncError: '' }] }).mile[0];
-    setMile((current) => current.map((row) => {
+    const normalized = normalizeCommonMovement({ ...normalizedData, syncStatus: 'synced', syncError: '' });
+    const accountId = operation.entity === 'mile' || operation.entity === 'rafa' ? operation.entity : operation.entity.slice(9);
+    setRowsForAccount(accountId, (current) => current.map((row) => {
       const realId = resolveSyncedId(row.id, idMap);
       return row.id === operation.id || row.id === normalized.id || realId === normalized.id ? normalized : row;
     }));
@@ -2125,39 +2584,27 @@ export default function App() {
 
   async function processSyncQueue(force = false) {
     if (syncingRef.current) return;
-    const available = queueRef.current.filter((item) => item.status === 'pending' || item.status === 'failed' || item.status === 'syncing');
-    if (available.length === 0) return;
-
+    const available = queueRef.current.filter((item) => ['pending', 'failed', 'syncing'].includes(item.status));
+    if (!available.length) return;
     const ready = await ensureConnectionReadyForSync(true);
     if (!ready) return;
-
     syncingRef.current = true;
     setSyncing(true);
     setError('');
-
     try {
       let workingQueue = [...queueRef.current];
-
       for (const item of available) {
         const currentItem = workingQueue.find((op) => op.opId === item.opId);
         if (!currentItem) continue;
         if (currentItem.status === 'failed' && !force && currentItem.attempts >= 3) continue;
-
         workingQueue = workingQueue.map((op) => op.opId === currentItem.opId ? { ...op, status: 'syncing', lastError: '' } : op);
         setSyncQueue(workingQueue);
         markRowsByOperation(currentItem, 'syncing');
-
         try {
           const resolvedId = resolveSyncedId(currentItem.id, idMapRef.current);
           const payload = currentItem.action === 'create'
             ? { entity: currentItem.entity, data: currentItem.data }
-            : {
-                entity: currentItem.entity,
-                id: resolvedId,
-                data: currentItem.data || undefined,
-                lastKnownUpdatedAt: currentItem.lastKnownUpdatedAt || ''
-              };
-
+            : { entity: currentItem.entity, id: resolvedId, data: currentItem.data || undefined, lastKnownUpdatedAt: currentItem.lastKnownUpdatedAt || '' };
           const response = await sheetsRequest(currentItem.action, payload);
           applySyncedResponse({ ...currentItem, id: resolvedId }, response?.data);
           workingQueue = workingQueue.filter((op) => op.opId !== currentItem.opId);
@@ -2165,26 +2612,14 @@ export default function App() {
           setNotice('Sincronizado');
         } catch (err) {
           const message = err.message || 'No se pudo sincronizar este cambio.';
-          workingQueue = workingQueue.map((op) => op.opId === currentItem.opId
-            ? {
-                ...op,
-                status: 'failed',
-                attempts: (op.attempts || 0) + 1,
-                lastError: message,
-                lastTriedAt: new Date().toISOString()
-              }
-            : op
-          );
+          workingQueue = workingQueue.map((op) => op.opId === currentItem.opId ? { ...op, status: 'failed', attempts: (op.attempts || 0) + 1, lastError: message, lastTriedAt: new Date().toISOString() } : op);
           setSyncQueue(workingQueue);
           markRowsByOperation(currentItem, 'failed', message);
           setError('Hay cambios pendientes que no pudieron sincronizarse. Toca “Sincronizar ahora” para reintentar.');
           if (!force) break;
         }
       }
-
-      if (workingQueue.length === 0) {
-        await loadData({ silent: true, preferCache: false });
-      }
+      if (!workingQueue.length) await loadData({ silent: true, preferCache: false });
     } finally {
       syncingRef.current = false;
       setSyncing(false);
@@ -2193,16 +2628,13 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-
     async function startApp() {
       const guard = await validateConnectionSilently({ openOnFailure: false });
       if (cancelled) return;
       await loadData();
       if (!cancelled && queueRef.current.length > 0 && !guard.blocked) scheduleSync(1200);
     }
-
     startApp();
-
     const onOnline = () => processSyncQueue(true);
     window.addEventListener('online', onOnline);
     return () => {
@@ -2211,7 +2643,6 @@ export default function App() {
       if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
     };
   }, []);
-
 
   async function openDiagnosticPanel() {
     setDiagnosticOpen(true);
@@ -2225,353 +2656,159 @@ export default function App() {
       const result = { ok: false, message: err.message || 'No se pudo ejecutar el diagnóstico.' };
       setDiagnosticResult(result);
       updateConnectionGuard(result);
-    } finally {
-      setDiagnosticLoading(false);
-    }
+    } finally { setDiagnosticLoading(false); }
   }
 
-  function saveMile(data) {
-    setError('');
-    setNotice('Guardado local');
+  function backendMovementData(account, data) {
+    if (account.id === 'rafa') return { fecha: data.fecha, concepto: data.concepto, monto: getMovementAmount(data), categoria: data.categoria || '' };
+    return data;
+  }
 
-    if (editing) {
-      const updatedSource = { ...editing, ...data, id: editing.id, syncStatus: 'pending', syncError: '' };
-      const updated = normalizeLoadedData({ mile: [updatedSource] }).mile[0];
-      setMile((current) => current.map((row) => row.id === editing.id ? updated : row));
-      enqueueSyncOperation(createOperation('update', 'mile', {
-        id: editing.id,
-        data,
-        lastKnownUpdatedAt: editing.actualizadoEn || ''
-      }));
+  function saveAccountMovement(account, data) {
+    setError('');
+    setNotice(editingContext ? 'Movimiento actualizado local' : 'Guardado local');
+    const entity = accountEntity(account.id);
+    const payloadData = backendMovementData(account, data);
+    const editingRow = editingContext?.account?.id === account.id ? editingContext.row : null;
+
+    if (editingRow) {
+      const updated = normalizeCommonMovement({ ...editingRow, ...data, id: editingRow.id, syncStatus: 'pending', syncError: '' });
+      setRowsForAccount(account.id, (current) => current.map((row) => row.id === editingRow.id ? updated : row));
+      enqueueSyncOperation(createOperation('update', entity, { id: editingRow.id, data: payloadData, lastKnownUpdatedAt: editingRow.actualizadoEn || '' }));
     } else {
-      const tempId = createTempId('TO');
-      const localCreated = normalizeLoadedData({
-        mile: [{
-          ...data,
-          id: tempId,
-          creadoEn: new Date().toISOString().slice(0, 19),
-          actualizadoEn: '',
-          estado: 'Activo',
-          syncStatus: 'pending',
-          syncError: ''
-        }]
-      }).mile[0];
-      setMile((current) => [localCreated, ...current]);
-      enqueueSyncOperation(createOperation('create', 'mile', {
-        id: tempId,
-        data
-      }));
+      const tempId = createTempId(account.id === 'mile' ? 'TO' : account.id === 'rafa' ? 'R' : account.id.toUpperCase().slice(0, 5));
+      const localCreated = normalizeCommonMovement({ ...data, id: tempId, creadoEn: new Date().toISOString().slice(0, 19), actualizadoEn: '', estado: 'Activo', syncStatus: 'pending', syncError: '' });
+      setRowsForAccount(account.id, (current) => [localCreated, ...current]);
+      enqueueSyncOperation(createOperation('create', entity, { id: tempId, data: payloadData }));
     }
-
-    setEditing(null);
-    setHomeFormOpen(false);
-    setActive('inicio');
+    setEditingContext(null);
+    setActive(`account:${account.id}`);
   }
 
-  function createRafa(data) {
-    setError('');
-    setNotice('Guardado local');
-    const tempId = createTempId('R');
-    const localCreated = normalizeLoadedData({
-      rafa: [{
-        ...data,
-        id: tempId,
-        syncStatus: 'pending',
-        syncError: ''
-      }]
-    }).rafa[0];
-
-    setRafa((current) => [localCreated, ...current]);
-    enqueueSyncOperation(createOperation('create', 'rafa', {
-      id: tempId,
-      data
-    }));
-  }
-
-
-  function updateRafa(data) {
-    if (!editingRafa) return;
-
-    setError('');
-    setNotice('Gasto de Rafa actualizado local');
-    const updatedSource = {
-      ...editingRafa,
-      ...data,
-      id: editingRafa.id,
-      syncStatus: 'pending',
-      syncError: ''
-    };
-    const updated = normalizeLoadedData({ rafa: [updatedSource] }).rafa[0];
-
-    setRafa((current) => current.map((row) => row.id === editingRafa.id ? updated : row));
-    enqueueSyncOperation(createOperation('update', 'rafa', {
-      id: editingRafa.id,
-      data
-    }));
-    setEditingRafa(null);
-    setActive('rafa');
-  }
-
-  function deleteRow(entity, row) {
-    const label = entity === 'rafa' ? 'este gasto de Rafa' : 'este movimiento de la Tabla Oficial';
-    const confirmText = entity === 'rafa'
-      ? `¿Seguro que deseas borrar ${label}? Se quitará de la app y luego se sincronizará con Google Sheets.`
-      : `¿Seguro que deseas borrar ${label}? Se quitará de la app y luego quedará marcado como Eliminado en Google Sheets.`;
-    const confirmDelete = window.confirm(confirmText);
-    if (!confirmDelete) return;
-
-    setError('');
+  function deleteAccountMovement(account, row) {
+    if (!window.confirm(`¿Seguro que deseas borrar este movimiento de ${account.name}? Los datos de la hoja se conservarán mediante eliminación lógica cuando aplique.`)) return;
+    setRowsForAccount(account.id, (current) => current.filter((item) => item.id !== row.id));
+    enqueueSyncOperation(createOperation('delete', accountEntity(account.id), { id: row.id, lastKnownUpdatedAt: row.actualizadoEn || '' }));
     setNotice('Borrado local');
+  }
 
-    if (entity === 'rafa') {
-      setRafa((current) => current.filter((item) => item.id !== row.id));
-    } else {
-      setMile((current) => current.filter((item) => item.id !== row.id));
-    }
+  async function createAccount(data) {
+    setConfigBusy(true);
+    setError('');
+    try {
+      const ready = await ensureConnectionReadyForSync(true);
+      if (!ready) return null;
+      const response = await sheetsRequest('create', { entity: 'account', data });
+      const account = normalizeAccount(response.data);
+      setAccounts((current) => [...current, account].sort((a, b) => a.order - b.order));
+      setDynamicMovements((current) => ({ ...current, [account.id]: [] }));
+      setNotice(`Hoja ${account.name} creada`);
+      setActive(`account:${account.id}`);
+      return account;
+    } catch (err) {
+      setError(err.message || 'No se pudo crear la hoja.');
+      return null;
+    } finally { setConfigBusy(false); }
+  }
 
-    enqueueSyncOperation(createOperation('delete', entity, {
-      id: row.id,
-      lastKnownUpdatedAt: row.actualizadoEn || ''
-    }));
+  async function updateAccount(accountId, changes) {
+    setConfigBusy(true);
+    setError('');
+    try {
+      const ready = await ensureConnectionReadyForSync(true);
+      if (!ready) return null;
+      const response = await sheetsRequest('update', { entity: 'account', id: accountId, data: changes });
+      const updated = normalizeAccount(response.data);
+      setAccounts((current) => current.map((account) => account.id === accountId ? updated : account).sort((a, b) => a.order - b.order));
+      setNotice('Configuración de hoja actualizada');
+      return updated;
+    } catch (err) {
+      setError(err.message || 'No se pudo actualizar la hoja.');
+      return null;
+    } finally { setConfigBusy(false); }
+  }
+
+  async function deactivateAccount(account) {
+    if (!window.confirm(`¿Archivar la hoja ${account.name}? La pestaña y sus datos permanecerán en Google Sheets, pero dejarán de aparecer en la aplicación.`)) return;
+    setConfigBusy(true);
+    try {
+      const ready = await ensureConnectionReadyForSync(true);
+      if (!ready) return;
+      await sheetsRequest('delete', { entity: 'account', id: account.id });
+      setAccounts((current) => current.filter((item) => item.id !== account.id));
+      setDynamicMovements((current) => { const next = { ...current }; delete next[account.id]; return next; });
+      if (active === `account:${account.id}`) setActive('dashboard');
+      setNotice('Hoja archivada');
+    } catch (err) {
+      setError(err.message || 'No se pudo archivar la hoja.');
+    } finally { setConfigBusy(false); }
   }
 
   function createReminder(parsed) {
     setError('');
     setNotice('Recordatorio guardado local');
     const tempId = createTempId('REM');
-    const localReminder = normalizeReminderData({
-      id: tempId,
-      text: parsed.text,
-      dueDate: parsed.dueDate,
-      dueTime: parsed.dueTime,
-      recurrence: parsed.recurrence,
-      recurrenceLabel: parsed.recurrenceLabel,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-      updatedAt: '',
-      completedAt: '',
-      syncStatus: 'pending',
-      syncError: ''
-    });
-
+    const localReminder = normalizeReminderData({ id: tempId, text: parsed.text, dueDate: parsed.dueDate, dueTime: parsed.dueTime, recurrence: parsed.recurrence, recurrenceLabel: parsed.recurrenceLabel, status: 'pending', createdAt: new Date().toISOString(), updatedAt: '', completedAt: '', syncStatus: 'pending', syncError: '' });
     setReminders((current) => [localReminder, ...current]);
-    enqueueSyncOperation(createOperation('create', 'reminder', {
-      id: tempId,
-      data: localReminder
-    }));
+    enqueueSyncOperation(createOperation('create', 'reminder', { id: tempId, data: localReminder }));
     return localReminder;
   }
 
   function completeReminder(id) {
     const reminder = remindersRef.current.find((item) => item.id === id);
     if (!reminder) return null;
-
     const completedAt = new Date().toISOString();
     const nextDueDate = getNextRecurrenceDate(reminder);
-    const updatedReminder = normalizeReminderData(nextDueDate
-      ? {
-          ...reminder,
-          dueDate: nextDueDate,
-          status: 'pending',
-          completedAt: '',
-          lastCompletedAt: completedAt,
-          updatedAt: completedAt,
-          syncStatus: 'pending',
-          syncError: ''
-        }
-      : {
-          ...reminder,
-          status: 'done',
-          completedAt,
-          updatedAt: completedAt,
-          syncStatus: 'pending',
-          syncError: ''
-        }
-    );
-
+    const updatedReminder = normalizeReminderData(nextDueDate ? { ...reminder, dueDate: nextDueDate, status: 'pending', completedAt: '', lastCompletedAt: completedAt, updatedAt: completedAt, syncStatus: 'pending', syncError: '' } : { ...reminder, status: 'done', completedAt, updatedAt: completedAt, syncStatus: 'pending', syncError: '' });
     setReminders((current) => current.map((item) => item.id === id ? updatedReminder : item));
-    enqueueSyncOperation(createOperation('update', 'reminder', {
-      id,
-      data: updatedReminder,
-      lastKnownUpdatedAt: reminder.updatedAt || ''
-    }));
+    enqueueSyncOperation(createOperation('update', 'reminder', { id, data: updatedReminder, lastKnownUpdatedAt: reminder.updatedAt || '' }));
     return { ...updatedReminder, nextDueDate, text: reminder.text };
   }
 
   function updateReminder(id, changes) {
     const reminder = remindersRef.current.find((item) => item.id === id);
     if (!reminder) return null;
-
-    const updatedReminder = normalizeReminderData({
-      ...reminder,
-      ...changes,
-      updatedAt: new Date().toISOString(),
-      syncStatus: 'pending',
-      syncError: ''
-    });
-
-    setError('');
+    const updatedReminder = normalizeReminderData({ ...reminder, ...changes, updatedAt: new Date().toISOString(), syncStatus: 'pending', syncError: '' });
     setNotice('Recordatorio actualizado local');
     setReminders((current) => current.map((item) => item.id === id ? updatedReminder : item));
-    enqueueSyncOperation(createOperation('update', 'reminder', {
-      id,
-      data: updatedReminder,
-      lastKnownUpdatedAt: reminder.updatedAt || ''
-    }));
+    enqueueSyncOperation(createOperation('update', 'reminder', { id, data: updatedReminder, lastKnownUpdatedAt: reminder.updatedAt || '' }));
     return updatedReminder;
   }
 
   function deleteReminder(id) {
     const reminder = remindersRef.current.find((item) => item.id === id);
-    if (!reminder) return null;
-    if (!window.confirm(`¿Seguro que deseas borrar la tarea “${reminder.text}”?`)) return null;
-
-    setError('');
-    setNotice('Recordatorio borrado local');
+    if (!reminder || !window.confirm(`¿Seguro que deseas borrar la tarea “${reminder.text}”?`)) return null;
     setReminders((current) => current.filter((item) => item.id !== id));
-    enqueueSyncOperation(createOperation('delete', 'reminder', {
-      id,
-      lastKnownUpdatedAt: reminder.updatedAt || ''
-    }));
+    enqueueSyncOperation(createOperation('delete', 'reminder', { id, lastKnownUpdatedAt: reminder.updatedAt || '' }));
+    setNotice('Recordatorio borrado local');
     return reminder;
   }
 
-  function startEdit(row) {
-    setEditing(row);
-    setHomeFormOpen(false);
-    setActive('inicio');
-  }
-
-  function startEditRafa(row) {
-    setEditingRafa(row);
-    setActive('rafa');
-  }
+  const hasAnyData = mile.length > 0 || rafa.length > 0 || Object.values(dynamicMovements).some((rows) => rows.length > 0) || reminders.length > 0;
 
   return (
     <main className="app-shell">
       <aside className={`sidebar ${mobileMenuOpen ? 'menu-open' : ''}`}>
         <div className="sidebar-head">
-          <div className="brand">
-            <span>GM</span>
-            <div>
-              <strong>Control Gastos</strong>
-              <small>Milena · Fase 4C</small>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="mobile-menu-toggle"
-            onClick={() => setMobileMenuOpen((current) => !current)}
-            aria-expanded={mobileMenuOpen}
-            aria-label="Abrir menú de navegación"
-          >
-            <span /> <span /> <span />
-          </button>
+          <div className="brand"><span>GM</span><div><strong>Control Gastos</strong><small>Milena · Fase 4D</small></div></div>
+          <button type="button" className="mobile-menu-toggle" onClick={() => setMobileMenuOpen((current) => !current)} aria-expanded={mobileMenuOpen} aria-label="Abrir menú de navegación"><span /> <span /> <span /></button>
         </div>
-        <nav className={mobileMenuOpen ? 'open' : ''}>
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              className={active === item.id ? 'active' : ''}
-              type="button"
-              onClick={() => { setActive(item.id); setMobileMenuOpen(false); }}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
+        <nav className={mobileMenuOpen ? 'open' : ''}>{navItems.map((item) => <button key={item.id} className={active === item.id ? 'active' : ''} type="button" onClick={() => { setActive(item.id); setMobileMenuOpen(false); }}>{item.label}</button>)}</nav>
       </aside>
 
       <section className="content">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">Aplicación personal</p>
-            <h1>Control de gastos de Milena</h1>
-          </div>
-          <span className="version" title={APP_VERSION}>Fase 4C</span>
-        </header>
-
-        <StatusBar
-          demoMode={demoMode}
-          loading={loading}
-          error={error}
-          notice={notice}
-          cachedAt={cachedAt}
-          hasData={mile.length > 0 || rafa.length > 0 || reminders.length > 0}
-          onRefresh={loadData}
-          pendingSyncCount={pendingSyncCount}
-          failedSyncCount={failedSyncCount}
-          syncing={syncing}
-          onSyncNow={() => processSyncQueue(true)}
-          onDiagnostic={openDiagnosticPanel}
-          diagnosticLoading={diagnosticLoading}
-          connectionGuard={connectionGuard}
-        />
-
+        <header className="topbar"><div><p className="eyebrow">Aplicación personal</p><h1>Control de gastos de Milena</h1></div><span className="version" title={APP_VERSION}>Fase 4D</span></header>
+        <StatusBar demoMode={demoMode} loading={loading} error={error} notice={notice} cachedAt={cachedAt} hasData={hasAnyData} onRefresh={loadData} pendingSyncCount={pendingSyncCount} failedSyncCount={failedSyncCount} syncing={syncing} onSyncNow={() => processSyncQueue(true)} onDiagnostic={openDiagnosticPanel} diagnosticLoading={diagnosticLoading} connectionGuard={connectionGuard} />
         <ConnectionGuardNotice guard={connectionGuard} onDiagnostic={openDiagnosticPanel} />
-
-        {loading && mile.length === 0 && rafa.length === 0 && reminders.length === 0 ? <div className="panel loading">Cargando información...</div> : null}
-
-        {(active === 'dashboard' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? (
-          <Dashboard mile={mile} rafa={rafa} month={month} setMonth={setMonth} />
-        ) : null}
-
-        {(active === 'inicio' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? (
-          <InicioModule
-            rows={mile}
-            config={config}
-            formOpen={homeFormOpen}
-            setFormOpen={setHomeFormOpen}
-            saving={saving}
-            onSave={saveMile}
-            onEdit={startEdit}
-            onDelete={(row) => deleteRow('mile', row)}
-          />
-        ) : null}
-
-
-        {(active === 'rafa' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? (
-          <RafaModule
-            rows={rafa}
-            config={config}
-            saving={saving}
-            onCreate={createRafa}
-            onEdit={startEditRafa}
-            onDelete={(row) => deleteRow('rafa', row)}
-          />
-        ) : null}
-
-        {(active === 'pendientes' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? (
-          <PendientesModule
-            reminders={reminders}
-            onUpdate={updateReminder}
-            onComplete={completeReminder}
-            onDelete={deleteReminder}
-          />
-        ) : null}
-
-        {(active === 'config' && (!loading || mile.length > 0 || rafa.length > 0 || reminders.length > 0)) ? <ConfigPanel config={config} /> : null}
+        {loading && !hasAnyData ? <div className="panel loading">Cargando información...</div> : null}
+        {active === 'dashboard' && (!loading || hasAnyData) ? <DynamicDashboard accounts={accounts} rowsByAccount={rowsByAccount} month={month} setMonth={setMonth} /> : null}
+        {activeAccount && (!loading || hasAnyData) ? <AccountModule account={activeAccount} rows={rowsByAccount[activeAccount.id] || []} config={config} saving={saving} onCreate={(data) => saveAccountMovement(activeAccount, data)} onEdit={(row) => setEditingContext({ account: activeAccount, row })} onDelete={(row) => deleteAccountMovement(activeAccount, row)} /> : null}
+        {active === 'pendientes' && (!loading || hasAnyData) ? <PendientesModule reminders={reminders} onUpdate={updateReminder} onComplete={completeReminder} onDelete={deleteReminder} /> : null}
+        {active === 'config' && (!loading || hasAnyData) ? <DynamicConfigPanel config={config} accounts={accounts} busy={configBusy} onCreateAccount={createAccount} onUpdateAccount={updateAccount} onDeactivateAccount={deactivateAccount} /> : null}
       </section>
-      <MileEditModal
-        row={editing}
-        config={config}
-        saving={saving}
-        onSubmit={saveMile}
-        onClose={() => setEditing(null)}
-      />
-      <RafaEditModal
-        row={editingRafa}
-        config={config}
-        saving={saving}
-        onSubmit={updateRafa}
-        onClose={() => setEditingRafa(null)}
-      />
-      <DiagnosticPanel
-        open={diagnosticOpen}
-        loading={diagnosticLoading}
-        result={diagnosticResult}
-        onClose={() => setDiagnosticOpen(false)}
-      />
+
+      <AccountEditModal context={editingContext} config={config} saving={saving} onSubmit={(data) => editingContext && saveAccountMovement(editingContext.account, data)} onClose={() => setEditingContext(null)} />
+      <DiagnosticPanel open={diagnosticOpen} loading={diagnosticLoading} result={diagnosticResult} onClose={() => setDiagnosticOpen(false)} />
       <ReminderAssistant onCreate={createReminder} />
     </main>
   );

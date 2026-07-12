@@ -2426,3 +2426,182 @@ textarea:focus {
     background: linear-gradient(to bottom, rgba(255, 255, 255, 0), var(--panel) 22%);
   }
 }
+
+/* Fase 4D · Hojas dinámicas */
+.dashboard-selector-group {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dashboard-selector-group label {
+  display: grid;
+  gap: 5px;
+  min-width: 180px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.account-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.account-summary-strip > div {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-soft);
+  display: grid;
+  gap: 3px;
+}
+
+.account-summary-strip span {
+  font-size: 0.76rem;
+  color: var(--muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.account-summary-strip strong {
+  font-size: 1rem;
+}
+
+.sheet-create-form {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.sheet-create-form > label:not(.checkbox-line),
+.account-config-grid > label:not(.checkbox-line) {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 0.84rem;
+}
+
+.checkbox-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.checkbox-line input {
+  width: auto;
+}
+
+.field-selector {
+  display: grid;
+  gap: 9px;
+}
+
+.field-selector > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.field-selector small {
+  color: var(--muted);
+}
+
+.accounts-config-list {
+  display: grid;
+  gap: 13px;
+  margin-top: 20px;
+}
+
+.account-config-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  background: var(--surface);
+  display: grid;
+  gap: 14px;
+}
+
+.account-config-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.account-config-title > div {
+  display: grid;
+  gap: 3px;
+}
+
+.account-config-title span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.account-visible-badge,
+.account-hidden-badge {
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 0.72rem !important;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.account-visible-badge {
+  background: #e9f7ee;
+  color: #267143 !important;
+}
+
+.account-hidden-badge {
+  background: #f2f3f5;
+  color: #68707b !important;
+}
+
+.account-config-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 110px minmax(180px, auto);
+  gap: 12px;
+  align-items: end;
+}
+
+.account-config-actions {
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .dashboard-selector-group,
+  .dashboard-selector-group label {
+    width: 100%;
+  }
+
+  .account-summary-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .sheet-create-form,
+  .account-config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .account-config-title {
+    align-items: flex-start;
+  }
+
+  .account-config-actions button {
+    flex: 1 1 140px;
+  }
+}

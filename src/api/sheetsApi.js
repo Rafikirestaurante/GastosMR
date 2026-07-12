@@ -2,8 +2,8 @@ import { normalizeText, parseAmount, todayISO } from '../utils/format.js';
 
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || '';
 const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || '';
-export const FRONTEND_VERSION = '1.7.2-fase-4c-edicion-modal';
-export const EXPECTED_BACKEND_VERSION = '1.6.5-fase-3f-configuracion-persistente';
+export const FRONTEND_VERSION = '1.7.3-fase-4d-hojas-dinamicas';
+export const EXPECTED_BACKEND_VERSION = '1.7.3-fase-4d-hojas-dinamicas';
 
 const DEMO_KEY = 'control-gastos-milena-demo-v3e-blindaje';
 const REMOTE_CACHE_KEY = 'control-gastos-milena-last-good-v3e-blindaje';
@@ -53,6 +53,29 @@ function normalizeReminderRow(data = {}) {
   };
 }
 
+
+function normalizeAccount(data = {}) {
+  return {
+    id: String(data.id || '').trim(),
+    name: String(data.name || '').trim(),
+    sheetName: String(data.sheetName || '').trim(),
+    type: data.type || 'dynamic',
+    primary: Boolean(data.primary),
+    visible: data.visible !== false,
+    order: Number(data.order || 999),
+    fields: Array.isArray(data.fields) && data.fields.length
+      ? data.fields
+      : ['fecha', 'proveedor', 'concepto', 'tipoMovimiento', 'monto', 'categoria', 'subcategoria'],
+    active: data.active !== false,
+    createdAt: data.createdAt || '',
+    updatedAt: data.updatedAt || ''
+  };
+}
+
+function normalizeDynamicMovement(data = {}) {
+  return normalizeOfficialRow(data);
+}
+
 const sampleState = {
   config: {
     categorias: [
@@ -71,6 +94,11 @@ const sampleState = {
     tiposMovimiento: ['Ingreso', 'Egreso'],
     subcategorias: ['Inicio', 'Apto', 'Personal']
   },
+  accounts: [
+    normalizeAccount({ id: 'mile', name: 'Mile', sheetName: 'Tabla Oficial', type: 'legacy_mile', primary: true, order: 1 }),
+    normalizeAccount({ id: 'rafa', name: 'Rafa', sheetName: 'Gastos Rafa', type: 'legacy_rafa', fields: ['fecha', 'concepto', 'monto', 'categoria'], order: 2 })
+  ],
+  dynamicMovements: {},
   mile: [
     normalizeOfficialRow({
       id: 'TO002',
@@ -124,6 +152,8 @@ function getDemoState() {
     const parsed = JSON.parse(raw);
     return {
       ...parsed,
+      accounts: (parsed.accounts || sampleState.accounts).map(normalizeAccount),
+      dynamicMovements: Object.fromEntries(Object.entries(parsed.dynamicMovements || {}).map(([key, rows]) => [key, (rows || []).map(normalizeDynamicMovement)])),
       mile: (parsed.mile || []).map(normalizeOfficialRow),
       rafa: parsed.rafa || [],
       reminders: (parsed.reminders || []).map(normalizeReminderRow)
@@ -200,7 +230,8 @@ function isGoodDiagnostic(result = {}) {
     result?.projectName === 'Control Gastos Milena' &&
     result?.spreadsheet?.ok &&
     result?.spreadsheet?.tablaOficialSheet &&
-    result?.spreadsheet?.recordatoriosSheet
+    result?.spreadsheet?.recordatoriosSheet &&
+    result?.spreadsheet?.hojasAppSheet
   );
 }
 
@@ -234,6 +265,9 @@ export function buildConnectionGuardFromDiagnostic(result = {}) {
   } else if (!spreadsheet?.recordatoriosSheet) {
     reason = 'missing_recordatorios';
     message = 'No se encontró la hoja Recordatorios en el Google Sheet conectado.';
+  } else if (!spreadsheet?.hojasAppSheet) {
+    reason = 'missing_hojas_app';
+    message = 'No se encontró la hoja técnica Hojas App. Implementa la versión nueva de Apps Script y ejecuta nuevamente el diagnóstico.';
   }
 
   return {
@@ -329,12 +363,96 @@ async function localRequest(action, payload = {}) {
     return {
       ok: true,
       demo: true,
+      projectName: 'Control Gastos Milena',
+      backendVersion: EXPECTED_BACKEND_VERSION,
       data: {
         ...state,
+        accounts: (state.accounts || []).filter((account) => account.active !== false),
         mile: (state.mile || []).filter((row) => String(row.estado || 'Activo').toLowerCase() !== 'eliminado'),
+        dynamicMovements: Object.fromEntries(Object.entries(state.dynamicMovements || {}).map(([key, rows]) => [key, (rows || []).filter((row) => String(row.estado || 'Activo').toLowerCase() !== 'eliminado')])),
         reminders: (state.reminders || []).filter((row) => String(row.status || 'pending').toLowerCase() !== 'deleted')
       }
     };
+  }
+
+  if (action === 'diagnostic') {
+    return {
+      ok: true,
+      demo: true,
+      projectName: 'Control Gastos Milena',
+      backendVersion: EXPECTED_BACKEND_VERSION,
+      spreadsheet: { ok: true, tablaOficialSheet: true, recordatoriosSheet: true, hojasAppSheet: true, sheets: ['Tabla Oficial', 'Gastos Rafa', 'Recordatorios', 'Hojas App'] }
+    };
+  }
+
+  if (action === 'create' && payload.entity === 'account') {
+    const name = String(payload.data?.name || '').trim();
+    if (!name) return { ok: false, message: 'Debes escribir un nombre.' };
+    const base = normalizeText(name).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'hoja';
+    let id = base;
+    let suffix = 2;
+    while ((state.accounts || []).some((account) => account.id === id)) id = `${base}-${suffix++}`;
+    const account = normalizeAccount({
+      id,
+      name,
+      sheetName: payload.data?.sheetName || `Gastos ${name}`,
+      type: 'dynamic',
+      visible: payload.data?.visible !== false,
+      order: Math.max(0, ...(state.accounts || []).map((item) => Number(item.order || 0))) + 1,
+      fields: payload.data?.fields
+    });
+    state.accounts = [...(state.accounts || []), account];
+    state.dynamicMovements = { ...(state.dynamicMovements || {}), [id]: [] };
+    saveDemoState(state);
+    return { ok: true, demo: true, projectName: 'Control Gastos Milena', backendVersion: EXPECTED_BACKEND_VERSION, data: account };
+  }
+
+  if (action === 'update' && payload.entity === 'account') {
+    let updated = null;
+    state.accounts = (state.accounts || []).map((account) => {
+      if (account.id !== payload.id) return account;
+      updated = normalizeAccount({ ...account, ...payload.data, name: account.id === 'mile' ? 'Mile' : (payload.data?.name ?? account.name) });
+      return updated;
+    });
+    saveDemoState(state);
+    return { ok: true, demo: true, projectName: 'Control Gastos Milena', backendVersion: EXPECTED_BACKEND_VERSION, data: updated };
+  }
+
+  if (action === 'delete' && payload.entity === 'account') {
+    state.accounts = (state.accounts || []).map((account) => account.id === payload.id ? { ...account, active: false, visible: false } : account);
+    saveDemoState(state);
+    return { ok: true, demo: true, projectName: 'Control Gastos Milena', backendVersion: EXPECTED_BACKEND_VERSION, data: { id: payload.id, active: false } };
+  }
+
+  const dynamicMatch = String(payload.entity || '').match(/^movement:(.+)$/);
+  if (dynamicMatch) {
+    const accountId = dynamicMatch[1];
+    const rows = state.dynamicMovements?.[accountId] || [];
+    if (action === 'create') {
+      const now = nowIso();
+      const row = normalizeDynamicMovement({ ...payload.data, id: `MOV-${Date.now()}`, creadoEn: now, actualizadoEn: now, estado: 'Activo' });
+      state.dynamicMovements = { ...(state.dynamicMovements || {}), [accountId]: [row, ...rows] };
+      saveDemoState(state);
+      return { ok: true, demo: true, projectName: 'Control Gastos Milena', backendVersion: EXPECTED_BACKEND_VERSION, data: row };
+    }
+    if (action === 'update') {
+      let updated = null;
+      state.dynamicMovements = {
+        ...(state.dynamicMovements || {}),
+        [accountId]: rows.map((item) => {
+          if (item.id !== payload.id) return item;
+          updated = normalizeDynamicMovement({ ...item, ...payload.data, id: payload.id, actualizadoEn: nowIso(), estado: 'Activo' });
+          return updated;
+        })
+      };
+      saveDemoState(state);
+      return { ok: true, demo: true, projectName: 'Control Gastos Milena', backendVersion: EXPECTED_BACKEND_VERSION, data: updated };
+    }
+    if (action === 'delete') {
+      state.dynamicMovements = { ...(state.dynamicMovements || {}), [accountId]: rows.filter((item) => item.id !== payload.id) };
+      saveDemoState(state);
+      return { ok: true, demo: true, projectName: 'Control Gastos Milena', backendVersion: EXPECTED_BACKEND_VERSION, data: { id: payload.id } };
+    }
   }
 
   if (action === 'create') {
@@ -348,7 +466,7 @@ async function localRequest(action, payload = {}) {
     const row = key === 'mile' ? normalizeOfficialRow(rawRow) : key === 'reminders' ? normalizeReminderRow(rawRow) : rawRow;
     state[key] = [row, ...(state[key] || [])];
     saveDemoState(state);
-    return { ok: true, demo: true, data: row };
+    return { ok: true, demo: true, projectName: 'Control Gastos Milena', backendVersion: EXPECTED_BACKEND_VERSION, data: row };
   }
 
   if (action === 'update') {
@@ -365,33 +483,22 @@ async function localRequest(action, payload = {}) {
       return updatedRow;
     });
     saveDemoState(state);
-    return { ok: true, demo: true, data: updatedRow };
+    return { ok: true, demo: true, projectName: 'Control Gastos Milena', backendVersion: EXPECTED_BACKEND_VERSION, data: updatedRow };
   }
 
   if (action === 'delete') {
     const key = payload.entity === 'rafa' ? 'rafa' : payload.entity === 'reminder' ? 'reminders' : 'mile';
     if (key === 'mile') {
       const now = nowIso();
-      state[key] = state[key].map((item) => item.id === payload.id
-        ? { ...item, estado: 'Eliminado', actualizadoEn: now }
-        : item
-      );
-      saveDemoState(state);
-      return { ok: true, demo: true, data: { id: payload.id, estado: 'Eliminado', actualizadoEn: now } };
-    }
-    if (key === 'reminders') {
+      state[key] = state[key].map((item) => item.id === payload.id ? { ...item, estado: 'Eliminado', actualizadoEn: now } : item);
+    } else if (key === 'reminders') {
       const now = nowIso();
-      state[key] = (state[key] || []).map((item) => item.id === payload.id
-        ? { ...item, status: 'deleted', updatedAt: now }
-        : item
-      );
-      saveDemoState(state);
-      return { ok: true, demo: true, data: { id: payload.id, status: 'deleted', updatedAt: now } };
+      state[key] = (state[key] || []).map((item) => item.id === payload.id ? { ...item, status: 'deleted', updatedAt: now } : item);
+    } else {
+      state[key] = state[key].filter((item) => item.id !== payload.id);
     }
-
-    state[key] = state[key].filter((item) => item.id !== payload.id);
     saveDemoState(state);
-    return { ok: true, demo: true, data: { id: payload.id } };
+    return { ok: true, demo: true, projectName: 'Control Gastos Milena', backendVersion: EXPECTED_BACKEND_VERSION, data: { id: payload.id } };
   }
 
   return { ok: false, message: 'Acción no soportada en modo demo.' };

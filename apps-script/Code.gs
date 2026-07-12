@@ -1,5 +1,5 @@
 /************************************************************
- * Control Gastos Milena - Fase 3F
+ * Control Gastos Milena - Fase 4D
  * Backend Google Apps Script para Google Sheets.
  *
  * Hoja principal activa: "Tabla Oficial".
@@ -15,6 +15,7 @@
  * Fase 3C: hoja Recordatorios sincronizada con la misma cola local de la app.
  * Fase 3E: blindaje de conexión, versión obligatoria y diagnóstico automático.
  * Fase 3F: configuración persistente en Propiedades del Script para evitar perder ID/token al implementar.
+ * Fase 4D: administración dinámica de Mile, Rafa y nuevas hojas mediante la pestaña técnica Hojas App.
  * - ID real por movimiento, sin depender del número de fila.
  * - LockService para crear/editar/borrar sin choques.
  * - Eliminación lógica con Estado = Eliminado.
@@ -32,7 +33,7 @@
  ************************************************************/
 
 const PROJECT_NAME = 'Control Gastos Milena';
-const BACKEND_VERSION = '1.6.5-fase-3f-configuracion-persistente';
+const BACKEND_VERSION = '1.7.3-fase-4d-hojas-dinamicas';
 
 // Valores seguros del proyecto actual. Se usan como respaldo, pero la fuente principal
 // será Propiedades del Script, configurada con instalarConfiguracionFija().
@@ -49,7 +50,8 @@ const SHEETS = {
   rafa: 'Gastos Rafa',
   config: 'Configuracion',
   reminder: 'Recordatorios',
-  reminders: 'Recordatorios'
+  reminders: 'Recordatorios',
+  accounts: 'Hojas App'
 };
 
 const HEADERS = {
@@ -74,6 +76,32 @@ const HEADERS = {
     'Concepto',
     'Monto',
     'Categoría'
+  ],
+  dynamic: [
+    'ID_Transaccion',
+    'Fecha',
+    'Proveedor',
+    'Concepto',
+    'Ingreso',
+    'Egreso',
+    'Categoría',
+    'Subcategoría',
+    'Creado_en',
+    'Actualizado_en',
+    'Estado'
+  ],
+  accounts: [
+    'ID_Hoja',
+    'Nombre_Visible',
+    'Nombre_Google_Sheets',
+    'Tipo',
+    'Principal',
+    'Visible_Menu',
+    'Orden',
+    'Campos_Visibles',
+    'Activa',
+    'Creado_en',
+    'Actualizado_en'
   ],
   reminders: [
     'ID_Recordatorio',
@@ -190,8 +218,10 @@ function doGet(e) {
         ok: true,
         data: {
           config: readConfig_(),
+          accounts: readAccounts_(),
           mile: readRows_('mile'),
           rafa: readRows_('rafa'),
+          dynamicMovements: readDynamicMovements_(),
           reminders: readRows_('reminders')
         }
       }, callback);
@@ -307,12 +337,15 @@ function buildDiagnostic_() {
       recordatoriosSheet: false,
       tablaOficialSheet: false,
       configuracionSheet: false,
-      gastosRafaSheet: false
+      gastosRafaSheet: false,
+      hojasAppSheet: false,
+      dynamicAccounts: 0
     }
   };
 
   try {
     const spreadsheet = getSpreadsheet_();
+    ensureAccountsSchema_();
     const sheetNames = spreadsheet.getSheets().map(sheet => sheet.getName());
     result.spreadsheet = {
       ok: true,
@@ -322,7 +355,9 @@ function buildDiagnostic_() {
       recordatoriosSheet: sheetNames.indexOf(SHEETS.reminders) !== -1,
       tablaOficialSheet: sheetNames.indexOf(SHEETS.mile) !== -1,
       configuracionSheet: sheetNames.indexOf(SHEETS.config) !== -1,
-      gastosRafaSheet: sheetNames.indexOf(SHEETS.rafa) !== -1
+      gastosRafaSheet: sheetNames.indexOf(SHEETS.rafa) !== -1,
+      hojasAppSheet: sheetNames.indexOf(SHEETS.accounts) !== -1,
+      dynamicAccounts: readAccounts_().filter(account => account.type === 'dynamic' && account.active).length
     };
   } catch (error) {
     result.ok = false;
@@ -345,6 +380,11 @@ function getSheet_(entity) {
   if (!sheet && entity === 'reminders') {
     sheet = spreadsheet.insertSheet(sheetName);
     sheet.getRange(1, 1, 1, HEADERS.reminders.length).setValues([HEADERS.reminders]);
+    sheet.setFrozenRows(1);
+  }
+  if (!sheet && entity === 'accounts') {
+    sheet = spreadsheet.insertSheet(sheetName);
+    sheet.getRange(1, 1, 1, HEADERS.accounts.length).setValues([HEADERS.accounts]);
     sheet.setFrozenRows(1);
   }
   if (!sheet) throw new Error('No existe la hoja: ' + sheetName);
@@ -744,6 +784,8 @@ function nowIso_() {
 }
 
 function createRow_(entity, data) {
+  if (entity === 'account') return createAccount_(data || {});
+  if (String(entity || '').indexOf('movement:') === 0) return createDynamicMovement_(String(entity).slice(9), data || {});
   if (entity !== 'mile' && entity !== 'rafa' && entity !== 'reminder') throw new Error('Entidad no válida.');
   validateRequired_(entity, data);
 
@@ -816,6 +858,8 @@ function createRow_(entity, data) {
 }
 
 function updateRow_(entity, id, data, lastKnownUpdatedAt) {
+  if (entity === 'account') return updateAccount_(id, data || {});
+  if (String(entity || '').indexOf('movement:') === 0) return updateDynamicMovement_(String(entity).slice(9), id, data || {}, lastKnownUpdatedAt || '');
   if (entity !== 'mile' && entity !== 'rafa' && entity !== 'reminder') throw new Error('Entidad no válida.');
   if (!id) throw new Error('Falta ID para actualizar.');
   validateRequired_(entity, data);
@@ -896,6 +940,8 @@ function updateRow_(entity, id, data, lastKnownUpdatedAt) {
 }
 
 function deleteRow_(entity, id, lastKnownUpdatedAt) {
+  if (entity === 'account') return deactivateAccount_(id);
+  if (String(entity || '').indexOf('movement:') === 0) return deleteDynamicMovement_(String(entity).slice(9), id, lastKnownUpdatedAt || '');
   if (entity !== 'mile' && entity !== 'rafa' && entity !== 'reminder') throw new Error('Entidad no válida.');
   if (!id) throw new Error('Falta ID para borrar.');
 
@@ -945,6 +991,300 @@ function assertNotChanged_(sheet, rowNumber, indexes, lastKnownUpdatedAt) {
   if (current && current !== expected) {
     throw new Error('Este movimiento fue actualizado desde otro dispositivo. Presiona "Actualizar datos" y vuelve a intentar.');
   }
+}
+
+
+function ensureAccountsSchema_() {
+  const sheet = getSheet_('accounts');
+  if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, HEADERS.accounts.length).setValues([HEADERS.accounts]);
+    sheet.setFrozenRows(1);
+  }
+
+  const lastColumn = Math.max(sheet.getLastColumn(), HEADERS.accounts.length);
+  const headerRow = sheet.getRange(1, 1, 1, lastColumn).getDisplayValues()[0];
+  if (headerRow.every(value => String(value || '').trim() === '')) {
+    sheet.getRange(1, 1, 1, HEADERS.accounts.length).setValues([HEADERS.accounts]);
+  }
+
+  if (sheet.getLastRow() < 2) {
+    const now = nowIso_();
+    sheet.getRange(2, 1, 2, HEADERS.accounts.length).setValues([
+      ['mile', 'Mile', SHEETS.mile, 'legacy_mile', 'SI', 'SI', 1, 'fecha,proveedor,concepto,tipoMovimiento,monto,categoria,subcategoria', 'SI', now, now],
+      ['rafa', 'Rafa', SHEETS.rafa, 'legacy_rafa', 'NO', 'SI', 2, 'fecha,concepto,monto,categoria', 'SI', now, now]
+    ]);
+  } else {
+    const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, HEADERS.accounts.length).getValues();
+    const ids = values.map(row => String(row[0] || '').trim());
+    const rowsToAppend = [];
+    const now = nowIso_();
+    if (ids.indexOf('mile') === -1) rowsToAppend.push(['mile', 'Mile', SHEETS.mile, 'legacy_mile', 'SI', 'SI', 1, 'fecha,proveedor,concepto,tipoMovimiento,monto,categoria,subcategoria', 'SI', now, now]);
+    if (ids.indexOf('rafa') === -1) rowsToAppend.push(['rafa', 'Rafa', SHEETS.rafa, 'legacy_rafa', 'NO', 'SI', 2, 'fecha,concepto,monto,categoria', 'SI', now, now]);
+    if (rowsToAppend.length) sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, HEADERS.accounts.length).setValues(rowsToAppend);
+  }
+  return sheet;
+}
+
+function yesNo_(value, fallback) {
+  const text = normalizeText_(value);
+  if (!text) return Boolean(fallback);
+  return ['si', 'true', '1', 'activo', 'visible'].indexOf(text) !== -1;
+}
+
+function mapAccountRow_(row) {
+  return {
+    id: String(row[0] || '').trim(),
+    name: String(row[1] || '').trim(),
+    sheetName: String(row[2] || '').trim(),
+    type: String(row[3] || 'dynamic').trim() || 'dynamic',
+    primary: yesNo_(row[4], false),
+    visible: yesNo_(row[5], true),
+    order: Number(row[6] || 999),
+    fields: String(row[7] || '').split(',').map(item => item.trim()).filter(Boolean),
+    active: yesNo_(row[8], true),
+    createdAt: String(row[9] || '').trim(),
+    updatedAt: String(row[10] || '').trim()
+  };
+}
+
+function readAccounts_() {
+  const sheet = ensureAccountsSchema_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  return sheet.getRange(2, 1, lastRow - 1, HEADERS.accounts.length).getValues()
+    .map(mapAccountRow_)
+    .filter(account => account.id && account.active)
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+}
+
+function findAccount_(accountId, includeInactive) {
+  const sheet = ensureAccountsSchema_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+  const values = sheet.getRange(2, 1, lastRow - 1, HEADERS.accounts.length).getValues();
+  for (let i = 0; i < values.length; i++) {
+    const account = mapAccountRow_(values[i]);
+    if (account.id === accountId && (includeInactive || account.active)) {
+      account.rowNumber = i + 2;
+      return account;
+    }
+  }
+  return null;
+}
+
+function slugAccountId_(value) {
+  const base = normalizeText_(value)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 35) || 'hoja';
+  let candidate = base;
+  let suffix = 2;
+  while (findAccount_(candidate, true)) {
+    candidate = base + '-' + suffix;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+function safeSheetName_(value) {
+  let name = String(value || '').trim().replace(/[\\\/?*\[\]:]/g, ' ').replace(/\s+/g, ' ').slice(0, 90);
+  if (!name) name = 'Movimientos';
+  const spreadsheet = getSpreadsheet_();
+  let candidate = name;
+  let suffix = 2;
+  while (spreadsheet.getSheetByName(candidate)) {
+    candidate = name.slice(0, 84) + ' ' + suffix;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+function createAccount_(data) {
+  const name = String(data.name || '').trim();
+  if (!name) throw new Error('Debes escribir el nombre de la nueva hoja.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const accountsSheet = ensureAccountsSchema_();
+    const id = slugAccountId_(name);
+    const sheetName = safeSheetName_(data.sheetName || ('Gastos ' + name));
+    const spreadsheet = getSpreadsheet_();
+    const movementSheet = spreadsheet.insertSheet(sheetName);
+    movementSheet.getRange(1, 1, 1, HEADERS.dynamic.length).setValues([HEADERS.dynamic]);
+    movementSheet.setFrozenRows(1);
+    try { movementSheet.hideColumns(9, 3); } catch (error) {}
+
+    const fields = Array.isArray(data.fields) && data.fields.length
+      ? data.fields
+      : ['fecha', 'proveedor', 'concepto', 'tipoMovimiento', 'monto', 'categoria', 'subcategoria'];
+    const currentAccounts = readAccounts_();
+    const maxOrder = currentAccounts.reduce((max, account) => Math.max(max, Number(account.order || 0)), 0);
+    const now = nowIso_();
+    const row = [id, name, sheetName, 'dynamic', 'NO', data.visible === false ? 'NO' : 'SI', Number(data.order || maxOrder + 1), fields.join(','), 'SI', now, now];
+    accountsSheet.appendRow(row);
+    return mapAccountRow_(row);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function updateAccount_(id, data) {
+  if (!id) throw new Error('Falta el identificador de la hoja.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const account = findAccount_(id, true);
+    if (!account) throw new Error('No se encontró la hoja configurada: ' + id);
+    const sheet = ensureAccountsSchema_();
+    const current = sheet.getRange(account.rowNumber, 1, 1, HEADERS.accounts.length).getValues()[0];
+    if (id === 'mile') current[1] = 'Mile';
+    else if (data.name !== undefined) current[1] = String(data.name || '').trim() || account.name;
+    if (data.visible !== undefined) current[5] = data.visible ? 'SI' : 'NO';
+    if (data.order !== undefined && Number(data.order) > 0) current[6] = Number(data.order);
+    if (Array.isArray(data.fields) && data.fields.length) current[7] = data.fields.join(',');
+    current[10] = nowIso_();
+    sheet.getRange(account.rowNumber, 1, 1, HEADERS.accounts.length).setValues([current]);
+    return mapAccountRow_(current);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function deactivateAccount_(id) {
+  if (id === 'mile' || id === 'rafa') throw new Error('Mile y Rafa no se pueden desactivar desde la aplicación.');
+  const account = findAccount_(id, true);
+  if (!account) throw new Error('No se encontró la hoja configurada: ' + id);
+  const sheet = ensureAccountsSchema_();
+  sheet.getRange(account.rowNumber, 9).setValue('NO');
+  sheet.getRange(account.rowNumber, 11).setValue(nowIso_());
+  return { id: id, active: false };
+}
+
+function ensureDynamicSheet_(account) {
+  if (!account || account.type !== 'dynamic') throw new Error('La cuenta no corresponde a una hoja dinámica.');
+  const spreadsheet = getSpreadsheet_();
+  let sheet = spreadsheet.getSheetByName(account.sheetName);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(account.sheetName);
+    sheet.getRange(1, 1, 1, HEADERS.dynamic.length).setValues([HEADERS.dynamic]);
+    sheet.setFrozenRows(1);
+  }
+  if (sheet.getLastRow() < 1) sheet.getRange(1, 1, 1, HEADERS.dynamic.length).setValues([HEADERS.dynamic]);
+  return sheet;
+}
+
+function mapDynamicRow_(row) {
+  const ingreso = parseAmount_(row[4]);
+  const egreso = parseAmount_(row[5]);
+  return {
+    id: String(row[0] || '').trim(),
+    fecha: formatDate_(row[1], row[1]),
+    proveedor: String(row[2] || '').trim(),
+    concepto: String(row[3] || '').trim(),
+    ingreso: ingreso,
+    egreso: egreso,
+    tipoMovimiento: ingreso > 0 ? 'Ingreso' : 'Egreso',
+    monto: ingreso > 0 ? ingreso : egreso,
+    categoria: String(row[6] || '').trim(),
+    subcategoria: String(row[7] || '').trim(),
+    creadoEn: String(row[8] || '').trim(),
+    actualizadoEn: String(row[9] || '').trim(),
+    estado: String(row[10] || 'Activo').trim() || 'Activo'
+  };
+}
+
+function readDynamicRows_(account) {
+  const sheet = ensureDynamicSheet_(account);
+  if (sheet.getLastRow() < 2) return [];
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, HEADERS.dynamic.length).getValues()
+    .map(mapDynamicRow_)
+    .filter(row => row.id && normalizeText_(row.estado) !== 'eliminado');
+}
+
+function readDynamicMovements_() {
+  const result = {};
+  readAccounts_().filter(account => account.type === 'dynamic' && account.active).forEach(account => {
+    result[account.id] = readDynamicRows_(account);
+  });
+  return result;
+}
+
+function newDynamicId_(accountId) {
+  const prefix = String(accountId || 'MOV').replace(/[^a-z0-9]/gi, '').slice(0, 5).toUpperCase() || 'MOV';
+  const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss');
+  const random = Math.floor(Math.random() * 9000 + 1000);
+  return prefix + '-' + stamp + '-' + random;
+}
+
+function findDynamicRow_(sheet, id) {
+  if (sheet.getLastRow() < 2) return 0;
+  const ids = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().flat();
+  for (let i = 0; i < ids.length; i++) if (String(ids[i] || '').trim() === String(id || '').trim()) return i + 2;
+  return 0;
+}
+
+function createDynamicMovement_(accountId, data) {
+  const account = findAccount_(accountId, false);
+  if (!account) throw new Error('No se encontró la hoja dinámica: ' + accountId);
+  validateDynamicMovement_(data);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sheet = ensureDynamicSheet_(account);
+    const amounts = officialAmounts_(data);
+    const now = nowIso_();
+    const row = [newDynamicId_(accountId), parseDate_(data.fecha), data.proveedor || '', data.concepto, amounts.ingreso, amounts.egreso, data.categoria || '', data.subcategoria || '', now, now, 'Activo'];
+    sheet.appendRow(row);
+    return mapDynamicRow_(row);
+  } finally { lock.releaseLock(); }
+}
+
+function updateDynamicMovement_(accountId, id, data, lastKnownUpdatedAt) {
+  const account = findAccount_(accountId, false);
+  if (!account) throw new Error('No se encontró la hoja dinámica: ' + accountId);
+  if (!id) throw new Error('Falta ID para actualizar.');
+  validateDynamicMovement_(data);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sheet = ensureDynamicSheet_(account);
+    const rowNumber = findDynamicRow_(sheet, id);
+    if (!rowNumber) throw new Error('No se encontró el movimiento: ' + id);
+    const current = sheet.getRange(rowNumber, 1, 1, HEADERS.dynamic.length).getValues()[0];
+    const expected = String(lastKnownUpdatedAt || '').trim();
+    const actual = String(current[9] || '').trim();
+    if (expected && actual && expected !== actual) throw new Error('Este movimiento fue actualizado desde otro dispositivo. Actualiza los datos y vuelve a intentar.');
+    const amounts = officialAmounts_(data);
+    const row = [id, parseDate_(data.fecha), data.proveedor || '', data.concepto, amounts.ingreso, amounts.egreso, data.categoria || '', data.subcategoria || '', current[8] || nowIso_(), nowIso_(), 'Activo'];
+    sheet.getRange(rowNumber, 1, 1, HEADERS.dynamic.length).setValues([row]);
+    return mapDynamicRow_(row);
+  } finally { lock.releaseLock(); }
+}
+
+function deleteDynamicMovement_(accountId, id, lastKnownUpdatedAt) {
+  const account = findAccount_(accountId, false);
+  if (!account) throw new Error('No se encontró la hoja dinámica: ' + accountId);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sheet = ensureDynamicSheet_(account);
+    const rowNumber = findDynamicRow_(sheet, id);
+    if (!rowNumber) throw new Error('No se encontró el movimiento: ' + id);
+    const current = sheet.getRange(rowNumber, 1, 1, HEADERS.dynamic.length).getValues()[0];
+    const expected = String(lastKnownUpdatedAt || '').trim();
+    const actual = String(current[9] || '').trim();
+    if (expected && actual && expected !== actual) throw new Error('Este movimiento fue actualizado desde otro dispositivo. Actualiza los datos y vuelve a intentar.');
+    const now = nowIso_();
+    sheet.getRange(rowNumber, 10).setValue(now);
+    sheet.getRange(rowNumber, 11).setValue('Eliminado');
+    return { id: id, estado: 'Eliminado', actualizadoEn: now };
+  } finally { lock.releaseLock(); }
+}
+
+function validateDynamicMovement_(data) {
+  const missing = ['fecha', 'concepto'].filter(field => data[field] === undefined || data[field] === null || String(data[field]).trim() === '');
+  if (missing.length) throw new Error('Faltan campos obligatorios: ' + missing.join(', '));
+  officialAmounts_(data);
 }
 
 function validateRequired_(entity, data) {

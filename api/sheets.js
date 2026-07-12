@@ -1,6 +1,6 @@
 const DEFAULT_TIMEOUT_MS = 15000;
-const FRONTEND_VERSION = '1.7.0-fase-4a-navegacion-pendientes';
-const EXPECTED_BACKEND_VERSION = '1.6.5-fase-3f-configuracion-persistente';
+const FRONTEND_VERSION = '1.7.3-fase-4d-hojas-dinamicas';
+const EXPECTED_BACKEND_VERSION = '1.7.3-fase-4d-hojas-dinamicas';
 
 function readBody(req) {
   if (!req.body) return {};
@@ -115,7 +115,7 @@ export default async function handler(req, res) {
       signal: controller.signal,
       headers: {
         'Accept': 'application/json,text/plain,*/*',
-        'User-Agent': 'Control-Gastos-Milena/4A'
+        'User-Agent': 'Control-Gastos-Milena/4D'
       }
     });
 
