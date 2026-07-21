@@ -1,6 +1,0 @@
-{
-  "version": "127.5-FASE36B5-RENDIMIENTO-DIVISION-PAQUETE-2026-07-21",
-  "phase": "Fase 36B.5 - Rendimiento y división del paquete principal",
-  "date": "2026-07-21",
-  "notes": "Reduce la descarga inicial mediante CSS independiente, paquetes vendor y carga bajo demanda de módulos operativos y PWA."
-}
