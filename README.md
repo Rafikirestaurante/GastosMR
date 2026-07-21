@@ -1,6 +1,6 @@
-# Control Gastos Milena — Fase 4E.1
+# Control Gastos Milena — Fase 4E.2
 
-Versión del frontend: `1.7.5-fase-4e1-dependencias-estables`  
+Versión del frontend: `1.7.6-fase-4e2-correccion-pantalla-blanca`  
 Versión esperada del backend: `1.7.3-fase-4d-hojas-dinamicas`
 
 ## Objetivo de esta fase
@@ -119,3 +119,8 @@ Las dependencias están fijadas en versiones exactas y compatibles. No usar `lat
 npm install --package-lock=false
 npm run build
 ```
+
+
+## Fase 4E.2 · Corrección de pantalla blanca
+
+Se corrigió el error de ejecución `React is not defined` que podía dejar la interfaz completamente blanca después del despliegue. `App.jsx` ahora importa React explícitamente y `main.jsx` incluye una pantalla de recuperación ante errores inesperados. No requiere cambios en Apps Script.

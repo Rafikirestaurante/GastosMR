@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildConnectionGuardFromDiagnostic,
   getCachedRemoteSnapshot,
@@ -49,7 +49,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 4E.1 · Dependencias estables para Vercel';
+const APP_VERSION = 'Fase 4E.2 · Corrección de pantalla blanca';
 const SYNC_DELAY_MS = 2500;
 
 function useMediaQuery(query) {
@@ -2882,14 +2882,14 @@ export default function App() {
     <main className="app-shell">
       <aside className={`sidebar ${mobileMenuOpen ? 'menu-open' : ''}`}>
         <div className="sidebar-head">
-          <div className="brand"><span>GM</span><div><strong>Control Gastos</strong><small>Milena · Fase 4E</small></div></div>
+          <div className="brand"><span>GM</span><div><strong>Control Gastos</strong><small>Milena · Fase 4E.2</small></div></div>
           <button type="button" className="mobile-menu-toggle" onClick={() => setMobileMenuOpen((current) => !current)} aria-expanded={mobileMenuOpen} aria-label="Abrir menú de navegación"><span /> <span /> <span /></button>
         </div>
         <nav className={mobileMenuOpen ? 'open' : ''}>{navItems.map((item) => <button key={item.id} className={active === item.id ? 'active' : ''} type="button" onClick={() => { setActive(item.id); setMobileMenuOpen(false); }}>{item.label}</button>)}</nav>
       </aside>
 
       <section className="content">
-        <header className="topbar"><div><p className="eyebrow">Aplicación personal</p><h1>Control de gastos de Milena</h1></div><span className="version" title={APP_VERSION}>Fase 4E.1</span></header>
+        <header className="topbar"><div><p className="eyebrow">Aplicación personal</p><h1>Control de gastos de Milena</h1></div><span className="version" title={APP_VERSION}>Fase 4E.2</span></header>
         <StatusBar demoMode={demoMode} loading={loading} error={error} notice={notice} cachedAt={cachedAt} hasData={hasAnyData} onRefresh={loadData} pendingSyncCount={pendingSyncCount} failedSyncCount={failedSyncCount} syncing={syncing} onSyncNow={() => processSyncQueue(true)} onDiagnostic={openDiagnosticPanel} diagnosticLoading={diagnosticLoading} connectionGuard={connectionGuard} />
         <ConnectionGuardNotice guard={connectionGuard} onDiagnostic={openDiagnosticPanel} />
         {loading && !hasAnyData ? <div className="panel loading">Cargando información...</div> : null}
