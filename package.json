@@ -1,17 +1,53 @@
 {
-  "name": "control-gastos-milena",
-  "private": true,
-  "version": "1.7.3",
-  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run --pool=forks --maxWorkers=2 --minWorkers=1",
+    "test:watch": "vitest",
+    "metadata:check": "node scripts/validate-project-metadata.mjs",
+    "pwa:check": "node scripts/validate-pwa.mjs",
+    "dashboard-ventas:check": "node scripts/validate-dashboard-ventas-gastos.mjs",
+    "dashboard-barras:check": "node scripts/validate-dashboard-barras-filtros.mjs",
+    "clientes-especiales:check": "node scripts/validate-clientes-especiales.mjs",
+    "cliente-para-llevar:check": "node scripts/validate-cliente-para-llevar.mjs",
+    "thermal-reports:check": "node scripts/validate-thermal-reports.mjs",
+    "thermal-pedidos-hoy:check": "node scripts/validate-thermal-pedidos-hoy.mjs",
+    "thermal-caja:check": "node scripts/validate-thermal-caja.mjs",
+    "thermal-gastos-cartera:check": "node scripts/validate-thermal-gastos-cartera.mjs",
+    "thermal-selector:check": "node scripts/validate-thermal-selector.mjs",
+    "thermal-tabla:check": "node scripts/validate-thermal-tabla-compacta.mjs",
+    "thermal-cierre:check": "node scripts/validate-thermal-cierre.mjs",
+    "thermal-ahorro:check": "node scripts/validate-thermal-ahorro-papel.mjs",
+    "thermal-contraste:check": "node scripts/validate-thermal-contraste.mjs",
+    "check": "node scripts/verify-project.mjs",
+    "verify": "npm run check",
+    "verificar": "npm run check",
+    "financial-flows:check": "node scripts/validate-financial-flows.mjs",
+    "feedback:check": "node scripts/validate-feedback-uniforme.mjs",
+    "performance:check": "node scripts/validate-performance-bundle.mjs"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "vite": "latest"
-  }
+    "@supabase/supabase-js": "^2.106.2",
+    "@vitejs/plugin-react": "^4.7.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^5.4.21"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.16.0",
+    "eslint": "^9.16.0",
+    "eslint-plugin-react": "^7.37.5",
+    "globals": "^15.13.0",
+    "prettier": "^3.4.2",
+    "vite-plugin-pwa": "^0.21.2",
+    "vitest": "^2.1.8"
+  },
+  "type": "module",
+  "name": "rafiki-pedidos",
+  "version": "127.5.0",
+  "private": true
 }
