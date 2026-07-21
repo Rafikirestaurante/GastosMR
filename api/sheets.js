@@ -1,5 +1,5 @@
 const DEFAULT_TIMEOUT_MS = 15000;
-const FRONTEND_VERSION = '1.7.3-fase-4d-hojas-dinamicas';
+const FRONTEND_VERSION = '1.7.5-fase-4e1-dependencias-estables';
 const EXPECTED_BACKEND_VERSION = '1.7.3-fase-4d-hojas-dinamicas';
 
 function readBody(req) {

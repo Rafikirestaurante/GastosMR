@@ -1,7 +1,7 @@
-# Control Gastos Milena — Fase 4D
+# Control Gastos Milena — Fase 4E.1
 
-Versión del frontend: `1.7.4-fase-4d-hojas-dinamicas`  
-Versión esperada del backend: `1.7.4-fase-4d-hojas-dinamicas`
+Versión del frontend: `1.7.5-fase-4e1-dependencias-estables`  
+Versión esperada del backend: `1.7.3-fase-4d-hojas-dinamicas`
 
 ## Objetivo de esta fase
 
@@ -85,7 +85,7 @@ Esta fase **sí modifica el backend**. Debes:
 5. Crear una nueva implementación de la aplicación web.
 6. Copiar la nueva URL `/exec` en `VITE_APPS_SCRIPT_URL` de Vercel.
 7. Volver a desplegar Vercel.
-8. Abrir Diagnóstico y verificar backend `1.7.4-fase-4d-hojas-dinamicas` y la existencia de `Hojas App`.
+8. Abrir Diagnóstico y verificar backend `1.7.3-fase-4d-hojas-dinamicas` y la existencia de `Hojas App`.
 
 La implementación debe continuar configurada como:
 
@@ -109,3 +109,13 @@ npm run build
 ## Fase 4E · Alerta diaria
 
 Al primer ingreso del día en cada dispositivo, la app muestra un modal si existen recordatorios vencidos o programados para hoy y los próximos 3 días. No requiere cambios en Apps Script.
+
+
+## Fase 4E.1 · Corrección de despliegue en Vercel
+
+Las dependencias están fijadas en versiones exactas y compatibles. No usar `latest` ni reemplazar estas versiones automáticamente. Para instalar y compilar:
+
+```bash
+npm install --package-lock=false
+npm run build
+```

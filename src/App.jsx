@@ -49,7 +49,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 4E · Alerta diaria de recordatorios';
+const APP_VERSION = 'Fase 4E.1 · Dependencias estables para Vercel';
 const SYNC_DELAY_MS = 2500;
 
 function useMediaQuery(query) {
@@ -2889,7 +2889,7 @@ export default function App() {
       </aside>
 
       <section className="content">
-        <header className="topbar"><div><p className="eyebrow">Aplicación personal</p><h1>Control de gastos de Milena</h1></div><span className="version" title={APP_VERSION}>Fase 4E</span></header>
+        <header className="topbar"><div><p className="eyebrow">Aplicación personal</p><h1>Control de gastos de Milena</h1></div><span className="version" title={APP_VERSION}>Fase 4E.1</span></header>
         <StatusBar demoMode={demoMode} loading={loading} error={error} notice={notice} cachedAt={cachedAt} hasData={hasAnyData} onRefresh={loadData} pendingSyncCount={pendingSyncCount} failedSyncCount={failedSyncCount} syncing={syncing} onSyncNow={() => processSyncQueue(true)} onDiagnostic={openDiagnosticPanel} diagnosticLoading={diagnosticLoading} connectionGuard={connectionGuard} />
         <ConnectionGuardNotice guard={connectionGuard} onDiagnostic={openDiagnosticPanel} />
         {loading && !hasAnyData ? <div className="panel loading">Cargando información...</div> : null}
