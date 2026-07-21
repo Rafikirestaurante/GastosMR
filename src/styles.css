@@ -2605,3 +2605,161 @@ textarea:focus {
     flex: 1 1 140px;
   }
 }
+
+/* Fase 4E · Alerta diaria de recordatorios cercanos */
+.daily-reminder-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  overflow-y: auto;
+  background: rgba(29, 20, 14, 0.58);
+  backdrop-filter: blur(4px);
+}
+
+.daily-reminder-card {
+  width: min(620px, 100%);
+  max-height: calc(100dvh - 2.5rem);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow: 0 28px 90px rgba(29, 20, 14, 0.32);
+}
+
+.daily-reminder-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.15rem 1.2rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-strong);
+}
+
+.daily-reminder-head h2,
+.daily-reminder-head p {
+  margin-bottom: 0.25rem;
+}
+
+.daily-reminder-close {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #f3e7d7;
+  color: var(--primary-dark);
+  font-size: 1.45rem;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.daily-reminder-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0.9rem 1.2rem 0.45rem;
+}
+
+.daily-reminder-summary span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #f5eee5;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.daily-reminder-list {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 9px;
+  padding: 0.55rem 1.2rem 0.9rem;
+}
+
+.daily-reminder-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.daily-reminder-item.overdue { border-left-color: #bd3f39; }
+.daily-reminder-item.today { border-left-color: #d57b20; }
+.daily-reminder-item.soon { border-left-color: #4379a8; }
+.daily-reminder-item.scheduled { border-left-color: #6f7890; }
+
+.daily-reminder-item > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.daily-reminder-item strong {
+  overflow-wrap: anywhere;
+}
+
+.daily-reminder-item small {
+  color: var(--muted);
+}
+
+.daily-reminder-more {
+  margin: 0;
+  padding: 0 1.2rem 0.8rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.daily-reminder-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  padding: 1rem 1.2rem 1.15rem;
+  border-top: 1px solid var(--border);
+  background: var(--panel-strong);
+}
+
+@media (max-width: 720px) {
+  .daily-reminder-overlay {
+    align-items: flex-end;
+    padding: 0.65rem;
+  }
+
+  .daily-reminder-card {
+    max-height: calc(100dvh - 1.3rem);
+    border-radius: 20px;
+  }
+
+  .daily-reminder-head,
+  .daily-reminder-summary,
+  .daily-reminder-list,
+  .daily-reminder-actions {
+    padding-left: 0.95rem;
+    padding-right: 0.95rem;
+  }
+
+  .daily-reminder-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .daily-reminder-actions button {
+    flex: 1 1 0;
+  }
+}

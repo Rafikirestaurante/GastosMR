@@ -49,7 +49,7 @@ const emptyRafa = {
   categoria: ''
 };
 
-const APP_VERSION = 'Fase 4D · Hojas de movimientos dinámicas';
+const APP_VERSION = 'Fase 4E · Alerta diaria de recordatorios';
 const SYNC_DELAY_MS = 2500;
 
 function useMediaQuery(query) {
@@ -462,6 +462,8 @@ function markPending(row, status = 'pending') {
 
 
 const REMINDERS_STORAGE_KEY = 'control-gastos-milena-reminders-v1';
+const DAILY_REMINDER_ALERT_KEY = 'control-gastos-milena-daily-reminder-alert-v1';
+const NEAR_REMINDER_DAYS = 3;
 
 function normalizeReminderData(item = {}) {
   const rawStatus = normalizeText(item.status || item.estado || 'pending');
@@ -1522,6 +1524,78 @@ function recurrenceLabelFromValue(value) {
   return '';
 }
 
+function getNearPendingReminders(reminders, daysAhead = NEAR_REMINDER_DAYS) {
+  const today = todayISO();
+  const limit = addDaysToISO(today, daysAhead);
+  return (reminders || [])
+    .filter((item) => item.status !== 'done' && item.status !== 'deleted' && item.dueDate && item.dueDate <= limit)
+    .sort((a, b) => getReminderSortKey(a).localeCompare(getReminderSortKey(b)));
+}
+
+function DailyReminderAlert({ open, reminders, onClose, onOpenPending }) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const overdueCount = reminders.filter((item) => item.dueDate < todayISO()).length;
+  const visibleItems = reminders.slice(0, 8);
+  const remainingCount = Math.max(0, reminders.length - visibleItems.length);
+
+  return (
+    <div className="daily-reminder-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="daily-reminder-card" role="dialog" aria-modal="true" aria-labelledby="daily-reminder-title">
+        <header className="daily-reminder-head">
+          <div>
+            <p className="eyebrow">Resumen del día</p>
+            <h2 id="daily-reminder-title">Recordatorios cercanos</h2>
+            <p className="muted">Vencidos, para hoy y programados durante los próximos {NEAR_REMINDER_DAYS} días.</p>
+          </div>
+          <button type="button" className="daily-reminder-close" onClick={onClose} aria-label="Cerrar alerta">×</button>
+        </header>
+
+        <div className="daily-reminder-summary">
+          <strong>{reminders.length} {reminders.length === 1 ? 'recordatorio cercano' : 'recordatorios cercanos'}</strong>
+          {overdueCount > 0 ? <span>{overdueCount} {overdueCount === 1 ? 'vencido' : 'vencidos'}</span> : <span>Todo al día</span>}
+        </div>
+
+        <div className="daily-reminder-list">
+          {visibleItems.map((item) => {
+            const state = getReminderState(item);
+            return (
+              <article className={`daily-reminder-item ${state.className}`} key={item.id}>
+                <span className={`reminder-state ${state.className}`}>{state.label}</span>
+                <div>
+                  <strong>{item.text}</strong>
+                  <small>{formatReminderDate(item.dueDate, item.dueTime, item.recurrenceLabel)}</small>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+
+        {remainingCount > 0 ? <p className="daily-reminder-more">Hay {remainingCount} recordatorios adicionales en Pendientes.</p> : null}
+
+        <footer className="daily-reminder-actions">
+          <button type="button" onClick={onOpenPending}>Ver Pendientes</button>
+          <button type="button" className="secondary" onClick={onClose}>Entendido</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 function PendientesModule({ reminders, onUpdate, onComplete, onDelete }) {
   const [editingId, setEditingId] = useState('');
   const [form, setForm] = useState(null);
@@ -2334,6 +2408,8 @@ export default function App() {
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const [diagnosticLoading, setDiagnosticLoading] = useState(false);
   const [diagnosticResult, setDiagnosticResult] = useState(null);
+  const [dailyReminderAlertOpen, setDailyReminderAlertOpen] = useState(false);
+  const [dailyReminderAlertItems, setDailyReminderAlertItems] = useState([]);
   const [connectionGuard, setConnectionGuard] = useState(() => ({
     checked: false,
     ok: false,
@@ -2351,6 +2427,7 @@ export default function App() {
   const syncTimerRef = useRef(null);
   const syncingRef = useRef(false);
   const connectionGuardRef = useRef(connectionGuard);
+  const dailyReminderAlertCheckedRef = useRef(false);
 
   const pendingSyncCount = syncQueue.filter((item) => item.status !== 'done').length;
   const failedSyncCount = syncQueue.filter((item) => item.status === 'failed').length;
@@ -2385,6 +2462,21 @@ export default function App() {
     const timer = window.setTimeout(() => setNotice(''), 3500);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    if (loading || dailyReminderAlertCheckedRef.current) return;
+    dailyReminderAlertCheckedRef.current = true;
+    const today = todayISO();
+    const lastShownDate = window.localStorage.getItem(DAILY_REMINDER_ALERT_KEY) || '';
+    if (lastShownDate === today) return;
+
+    window.localStorage.setItem(DAILY_REMINDER_ALERT_KEY, today);
+    const nearReminders = getNearPendingReminders(remindersRef.current);
+    if (nearReminders.length) {
+      setDailyReminderAlertItems(nearReminders);
+      setDailyReminderAlertOpen(true);
+    }
+  }, [loading]);
 
   useEffect(() => {
     const dynamicCount = Object.values(dynamicMovements).reduce((total, rows) => total + rows.length, 0);
@@ -2790,14 +2882,14 @@ export default function App() {
     <main className="app-shell">
       <aside className={`sidebar ${mobileMenuOpen ? 'menu-open' : ''}`}>
         <div className="sidebar-head">
-          <div className="brand"><span>GM</span><div><strong>Control Gastos</strong><small>Milena · Fase 4D</small></div></div>
+          <div className="brand"><span>GM</span><div><strong>Control Gastos</strong><small>Milena · Fase 4E</small></div></div>
           <button type="button" className="mobile-menu-toggle" onClick={() => setMobileMenuOpen((current) => !current)} aria-expanded={mobileMenuOpen} aria-label="Abrir menú de navegación"><span /> <span /> <span /></button>
         </div>
         <nav className={mobileMenuOpen ? 'open' : ''}>{navItems.map((item) => <button key={item.id} className={active === item.id ? 'active' : ''} type="button" onClick={() => { setActive(item.id); setMobileMenuOpen(false); }}>{item.label}</button>)}</nav>
       </aside>
 
       <section className="content">
-        <header className="topbar"><div><p className="eyebrow">Aplicación personal</p><h1>Control de gastos de Milena</h1></div><span className="version" title={APP_VERSION}>Fase 4D</span></header>
+        <header className="topbar"><div><p className="eyebrow">Aplicación personal</p><h1>Control de gastos de Milena</h1></div><span className="version" title={APP_VERSION}>Fase 4E</span></header>
         <StatusBar demoMode={demoMode} loading={loading} error={error} notice={notice} cachedAt={cachedAt} hasData={hasAnyData} onRefresh={loadData} pendingSyncCount={pendingSyncCount} failedSyncCount={failedSyncCount} syncing={syncing} onSyncNow={() => processSyncQueue(true)} onDiagnostic={openDiagnosticPanel} diagnosticLoading={diagnosticLoading} connectionGuard={connectionGuard} />
         <ConnectionGuardNotice guard={connectionGuard} onDiagnostic={openDiagnosticPanel} />
         {loading && !hasAnyData ? <div className="panel loading">Cargando información...</div> : null}
@@ -2807,6 +2899,12 @@ export default function App() {
         {active === 'config' && (!loading || hasAnyData) ? <DynamicConfigPanel config={config} accounts={accounts} busy={configBusy} onCreateAccount={createAccount} onUpdateAccount={updateAccount} onDeactivateAccount={deactivateAccount} /> : null}
       </section>
 
+      <DailyReminderAlert
+        open={dailyReminderAlertOpen}
+        reminders={dailyReminderAlertItems}
+        onClose={() => setDailyReminderAlertOpen(false)}
+        onOpenPending={() => { setDailyReminderAlertOpen(false); setActive('pendientes'); setMobileMenuOpen(false); }}
+      />
       <AccountEditModal context={editingContext} config={config} saving={saving} onSubmit={(data) => editingContext && saveAccountMovement(editingContext.account, data)} onClose={() => setEditingContext(null)} />
       <DiagnosticPanel open={diagnosticOpen} loading={diagnosticLoading} result={diagnosticResult} onClose={() => setDiagnosticOpen(false)} />
       <ReminderAssistant onCreate={createReminder} />
